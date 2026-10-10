@@ -62,7 +62,10 @@ label{display:grid;gap:4px;font-size:13px;color:var(--muted)}
 textarea{width:100%;min-width:0;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-size:16px;line-height:1.5;resize:vertical;font-family:inherit}
 input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-size:16px}
 .amt{font-size:28px;font-weight:700;height:58px}
-.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.two>label{min-width:0}
+input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;display:block;min-width:0;max-width:100%;text-align:left;padding-inline:10px;font-size:15px}
+input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and-time-value{text-align:left;min-width:0}
 .seg{display:flex;flex-wrap:wrap;gap:8px}
 .btn{height:46px;padding-inline:16px;border-radius:12px;background:var(--accent);color:var(--accent-fg);font-weight:700}
 .btn.ghost{background:var(--soft);color:var(--accent)}
