@@ -38,6 +38,11 @@ button{cursor:pointer;border:0;background:none}
 .sum .lbl{font-size:12px;opacity:.8;letter-spacing:.08em}
 .sum .big{font-size:34px;font-weight:700;line-height:1.1}
 .sum .row{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;opacity:.9;margin-top:6px}
+.bud{height:6px;border-radius:3px;background:rgba(255,255,255,.25);overflow:hidden;margin-top:8px}
+.bud i{display:block;height:100%;background:#fff;border-radius:3px}
+.bud.over i{background:#ffb4ab}
+.sum .meta{font-size:13px;opacity:.9}
+.sum .memo{font-size:12px;opacity:.75;white-space:pre-wrap;overflow-wrap:anywhere}
 .cats{display:flex;gap:8px;overflow-x:auto;padding-block:14px;scrollbar-width:none}
 .chip{flex:none;padding:6px 12px;border-radius:99px;background:var(--surface);border:1px solid var(--line);font-size:13px;white-space:nowrap}
 .chip[aria-pressed="true"]{background:var(--soft);border-color:var(--accent);color:var(--accent);font-weight:700}
@@ -122,7 +127,7 @@ function render(){
   var by={};ex.forEach(function(e){by[e.cat]=(by[e.cat]||0)+e.amount});
   var list=ui.cat==="全部"?ex:ex.filter(function(e){return e.cat===ui.cat});
   var h='<div class="bar"><button class="proj" data-a="projects" aria-label="切換專案"><b>'+esc(p.name)+'</b><small>切換 ▾</small></button><button class="ibtn'+(navigator.onLine?'':' off')+'" data-a="sync">同步</button></div>';
-  h+='<section class="sum"><div class="lbl">總支出</div><div class="big num">'+yen(total)+'</div><div class="row num"><span>約 '+twd(total,p.rate)+'</span><span>今日 '+yen(tdSum)+'</span>'+(days?'<span>日均 '+yen(total/days)+'</span>':'')+'</div></section>';
+  h+='<section class="sum"><div class="lbl">總支出</div><div class="big num">'+yen(total)+'</div><div class="row num"><span>約 '+twd(total,p.rate)+'</span><span>今日 '+yen(tdSum)+'</span>'+(days?'<span>日均 '+yen(total/days)+'</span>':'')+'</div>'+extraHTML(p,total)+'</section>';
   h+='<div class="cats"><button class="chip" data-cat="全部" aria-pressed="'+(ui.cat==="全部")+'">全部</button>'+CATS.map(function(c){return '<button class="chip" data-cat="'+c[0]+'" aria-pressed="'+(ui.cat===c[0])+'">'+c[0]+(by[c[0]]?'<span class="num">'+yen(by[c[0]])+'</span>':'')+'</button>'}).join("")+'</div>';
   if(!list.length)h+='<div class="empty">還沒有記錄<br>點右下角「記一筆」開始</div>';
   else{
@@ -143,6 +148,19 @@ function render(){
   $("#app").innerHTML=h;
 }
 
+function md(d){return d?d.slice(5).replace('-','/'):''}
+function extraHTML(p,total){
+  var h='',m=[];
+  if(p.start||p.end)m.push(md(p.start)+(p.end?' – '+md(p.end):''));
+  if(p.people>0)m.push(p.people+' 人'+(p.people>1&&total?'，每人 '+yen(total/p.people):''));
+  if(m.length)h+='<div class="meta num">'+esc(m.join('　·　'))+'</div>';
+  if(p.budget>0){
+    var left=p.budget-total,pc=Math.min(100,total/p.budget*100);
+    h+='<div class="meta num" style="margin-top:6px">預算 '+yen(p.budget)+'　'+(left>=0?'剩餘 '+yen(left):'超支 '+yen(-left))+'</div><div class="bud'+(left<0?' over':'')+'"><i style="width:'+pc+'%"></i></div>';
+  }
+  if(p.memo)h+='<div class="memo">'+esc(p.memo)+'</div>';
+  return h;
+}
 function sheetHTML(p){
   if(!ui.sheet)return "";
   var b='';
@@ -165,6 +183,9 @@ function sheetHTML(p){
     }).join("")+
     '<h3>新增旅行專案</h3><div class="btns"><input id="np-name" type="text" placeholder="例如：大阪京都 2026 春"><button class="btn" data-a="newProj" style="flex:none">建立</button></div>'+
     '<h3>目前專案設定</h3><div class="two"><label>專案名稱<input id="ps-name" type="text" value="'+esc(p.name)+'"></label><label>匯率（日圓→台幣）<input id="ps-rate" type="number" inputmode="decimal" step="0.001" value="'+p.rate+'"></label></div>'+
+    '<div class="two"><label>出發日<input id="ps-start" type="date" value="'+esc(p.start||"")+'"></label><label>回程日<input id="ps-end" type="date" value="'+esc(p.end||"")+'"></label></div>'+
+    '<div class="two"><label>預算（日圓）<input id="ps-budget" type="number" inputmode="numeric" min="0" placeholder="不設定可留空" value="'+(p.budget||"")+'"></label><label>人數<input id="ps-people" type="number" inputmode="numeric" min="1" placeholder="1" value="'+(p.people||"")+'"></label></div>'+
+    '<label>備註（住宿、航班、行程重點等）<input id="ps-memo" type="text" value="'+esc(p.memo||"")+'"></label>'+
     '<div class="btns"><button class="btn ghost" data-a="saveSet">更新設定</button><button class="btn danger" data-a="delProj">'+(ui.confirmDel?"再按一次確認":"刪除此專案")+'</button></div>';
   }else if(ui.sheet==="sync"){
     var on=navigator.onLine,ready=on&&!!cid()&&!ui.busy;
@@ -304,7 +325,7 @@ document.addEventListener("click",function(ev){
   }
   else if(a==="saveSet"){
     var nm=$("#ps-name").value.trim(),r=+$("#ps-rate").value;
-    if(nm)p.name=nm;if(r>0)p.rate=r;touch();close();toast("已更新");
+    if(nm)p.name=nm;if(r>0)p.rate=r;p.start=$("#ps-start").value;p.end=$("#ps-end").value;p.budget=Math.max(0,Math.round(+$("#ps-budget").value||0));p.people=Math.max(0,Math.round(+$("#ps-people").value||0));p.memo=$("#ps-memo").value.trim();touch();close();toast("已更新");
   }
   else if(a==="delProj"){
     if(!ui.confirmDel){ui.confirmDel=true;render();return}
