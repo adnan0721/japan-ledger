@@ -79,6 +79,15 @@ input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and
 .hint{font-size:12px;color:var(--muted);margin:0}
 .status{display:flex;gap:8px;align-items:center;font-size:13px}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--warn)}.dot.on{background:#2f9d63}
+.thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.thumbs:empty{display:none}
+.th{position:relative;width:76px;height:76px;border-radius:10px;overflow:hidden;background:var(--soft);display:grid;place-items:center;font-size:11px;color:var(--accent)}
+.th img{width:100%;height:100%;object-fit:cover;display:block}
+.th a{color:var(--accent);text-align:center;padding:4px}
+.th button{position:absolute;width:26px;height:26px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:13px;line-height:26px}
+.th .x{top:3px;right:3px}.th .up{bottom:3px;right:3px}
+.viewer{position:fixed;inset:0;z-index:30;background:rgba(0,0,0,.92);display:grid;place-items:center;padding:16px}
+.viewer img{max-width:100%;max-height:100%;object-fit:contain}
 .ver{text-align:center;color:var(--muted);font-size:12px;padding-top:24px}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(90px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:99px;font-size:14px;z-index:20;max-width:90%}
 </style>
@@ -89,7 +98,7 @@ input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v9";
+var VERSION="v10";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -141,7 +150,7 @@ function render(){
       h+='<div class="day num"><span>'+g.d+(g.d===td?"（今天）":"")+'</span><span>'+yen(s)+'</span></div><div class="group">';
       g.items.forEach(function(e){
         var c=CATS.find(function(x){return x[0]===e.cat})||CATS[5];
-        h+='<button class="item" data-edit="'+e.id+'"><span class="tag">'+c[1]+'</span><span class="t"><div>'+esc(e.note||e.cat)+'</div><small class="num">'+(e.time?esc(e.time)+' · ':'')+(e.place?esc(e.place)+' · ':'')+esc(e.cat)+' · '+esc(e.pay)+'</small></span><span class="a num">'+yen(e.amount)+'<small>'+twd(e.amount,p.rate)+'</small></span></button>';
+        h+='<button class="item" data-edit="'+e.id+'"><span class="tag">'+c[1]+'</span><span class="t"><div>'+esc(e.note||e.cat)+'</div><small class="num">'+(e.time?esc(e.time)+' · ':'')+(e.place?esc(e.place)+' · ':'')+esc(e.cat)+' · '+esc(e.pay)+(e.photos&&e.photos.length?' · 附圖':'')+'</small></span><span class="a num">'+yen(e.amount)+'<small>'+twd(e.amount,p.rate)+'</small></span></button>';
       });
       h+='</div>';
     });
@@ -149,6 +158,7 @@ function render(){
   h+='<div class="ver">版本 '+VERSION+'</div><button class="fab" data-a="add">＋ 記一筆</button>';
   h+=sheetHTML(p);
   $("#app").innerHTML=h;
+  if(ui.sheet==="form")refreshThumbs();
 }
 
 function md(d){return d?d.slice(5).replace('-','/'):''}
@@ -172,6 +182,7 @@ function sheetHTML(p){
     '<div class="two"><label>日期<input id="f-date" type="date" value="'+v.date+'"></label><label>時間<input id="f-time" type="time" value="'+esc(v.time||"")+'"></label></div>'+
     '<label>付款方式<select id="f-pay">'+PAYS.map(function(x){return '<option'+(x===v.pay?' selected':'')+'>'+x+'</option>'}).join("")+'</select></label>'+
  '<label>地點<input id="f-place" type="text" list="places" placeholder="例如：淺草、新宿站" value="'+esc(v.place||"")+'"></label><datalist id="places">'+placeList().map(function(x){return '<option value="'+esc(x)+'">'}).join("")+'</datalist>'+
+    '<div><h3>照片（收據）</h3><div id="thumbs" class="thumbs"></div><button class="btn ghost" type="button" data-a="addPhoto" style="width:100%">拍照／選照片</button><input id="ph" type="file" accept="image/*" multiple hidden></div>'+
     '<label>備註<input id="f-note" type="text" placeholder="例如：一蘭拉麵" value="'+esc(v.note)+'"></label>'+
     '<div class="btns">'+(e?'<button class="btn danger" data-a="del">'+(ui.confirmDel?"再按一次刪除":"刪除")+'</button>':'<button class="btn ghost" data-a="close">取消</button>')+'<button class="btn" data-a="saveExp">儲存</button></div>';
   }else if(ui.sheet==="projects"){
@@ -211,7 +222,8 @@ function sheetHTML(p){
 }
 
 function placeList(){var m={};S.projects.forEach(function(q){q.expenses.forEach(function(e){if(e.place)m[e.place]=(m[e.place]||0)+1})});return Object.keys(m).sort(function(a,b){return m[b]-m[a]}).slice(0,30)}
-function open(s,id){ui.sheet=s;ui.editId=id||null;ui.confirmDel=false;render();if(s==="form")updTwd()}
+function open(s,id){if(s==="form"){var ee=id&&cur().expenses.find(function(x){return x.id===id});ui.photos=ee&&ee.photos?ee.photos.map(function(x){return {id:x.id,drive:x.drive||''}}):[];ui.removed=[]}
+  ui.sheet=s;ui.editId=id||null;ui.confirmDel=false;render();if(s==="form")updTwd()}
 function close(){ui.sheet=null;ui.editId=null;ui.confirmDel=false;render()}
 function updTwd(){var a=$("#f-amt"),t=$("#f-twd");if(a&&t){var n=+a.value||0;t.textContent=n?"約 "+twd(n,cur().rate):""}}
 function mergeIn(p){
@@ -275,6 +287,58 @@ function uploadProject(p){
     return drive(url,{method:ex?"PATCH":"POST",headers:{"Content-Type":"multipart/related; boundary="+B},body:body});
   });
 }
+
+/* ---- 照片（IndexedDB，離線可用）---- */
+var idbP=null,urls={};
+function idb(){return idbP||(idbP=new Promise(function(res,rej){var r=indexedDB.open("jpl-photos",1);r.onupgradeneeded=function(){r.result.createObjectStore("p")};r.onsuccess=function(){res(r.result)};r.onerror=function(){rej(r.error)}}))}
+function pTx(mode,fn){return idb().then(function(d){return new Promise(function(res,rej){var t=d.transaction("p",mode),rq=fn(t.objectStore("p"));t.oncomplete=function(){res(rq&&rq.result)};t.onerror=function(){rej(t.error)}})})}
+function pPut(id,b){return pTx("readwrite",function(o){return o.put(b,id)})}
+function pGet(id){return pTx("readonly",function(o){return o.get(id)})}
+function pDel(id){return pTx("readwrite",function(o){return o.delete(id)}).catch(function(){})}
+function compress(file){
+  return new Promise(function(res,rej){
+    var u=URL.createObjectURL(file),img=new Image();
+    img.onload=function(){
+      var M=1280,k=Math.min(1,M/Math.max(img.width,img.height)),c=document.createElement("canvas");
+      c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);
+      c.toBlob(function(b){b?res(b):rej(new Error("壓縮失敗"))},"image/jpeg",0.72);
+    };
+    img.onerror=function(){URL.revokeObjectURL(u);rej(new Error("無法讀取圖片"))};
+    img.src=u;
+  });
+}
+function photoBlob(it){return it&&it.blob?Promise.resolve(it.blob):pGet(it.id)}
+function refreshThumbs(){
+  var box=$("#thumbs");if(!box)return;
+  box.innerHTML=(ui.photos||[]).map(function(it){
+    return '<div class="th"><img data-pid="'+it.id+'" data-pview="'+it.id+'" alt="收據"><button type="button" class="x" data-pdel="'+it.id+'" aria-label="刪除照片">✕</button><button type="button" class="up" data-pup="'+it.id+'" aria-label="上傳到雲端">'+(it.drive?'✓':'☁')+'</button></div>';
+  }).join("");
+  box.querySelectorAll("img[data-pid]").forEach(function(img){
+    var id=img.dataset.pid,it=ui.photos.find(function(x){return x.id===id});
+    if(urls[id]){img.src=urls[id];return}
+    photoBlob(it).then(function(b){
+      if(b){urls[id]=URL.createObjectURL(b);img.src=urls[id]}
+      else if(it.drive){var a=document.createElement("a");a.href="https://drive.google.com/file/d/"+it.drive+"/view";a.target="_blank";a.rel="noopener";a.textContent="在雲端硬碟開啟";img.replaceWith(a)}
+    }).catch(function(){});
+  });
+}
+function uploadPhoto(it){
+  var amt=$("#f-amt")?$("#f-amt").value:"",dt=$("#f-date")?$("#f-date").value:today();
+  return Promise.all([photoBlob(it),ensureFolder()]).then(function(r){
+    if(!r[0])throw new Error("找不到照片檔");
+    var meta={name:"收據-"+dt+"-"+(amt||"0")+"-"+it.id.slice(0,4)+".jpg",mimeType:"image/jpeg",parents:[r[1]],appProperties:{jpphoto:"1"}};
+    var B="jpp"+uid(),pre="--"+B+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+JSON.stringify(meta)+"\r\n--"+B+"\r\nContent-Type: image/jpeg\r\n\r\n";
+    var body=new Blob([pre,r[0],"\r\n--"+B+"--"]);
+    return drive("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{method:"POST",headers:{"Content-Type":"multipart/related; boundary="+B},body:body});
+  }).then(function(r){return r.json()}).then(function(j){it.drive=j.id});
+}
+function showViewer(id){
+  var it=(ui.photos||[]).find(function(x){return x.id===id});
+  var v=document.createElement("div");v.className="viewer";
+  var i=document.createElement("img");i.src=urls[id]||"";v.appendChild(i);
+  v.onclick=function(){v.remove()};document.body.appendChild(v);
+}
 function saveFile(name,mime,text,share){
   name=name.replace(/[\\/:*?"<>|]/g,"_");
   var file=new File([text],name,{type:mime});
@@ -285,9 +349,26 @@ function saveFile(name,mime,text,share){
   function dl(){var u=URL.createObjectURL(file),l=document.createElement("a");l.href=u;l.download=name;document.body.appendChild(l);l.click();l.remove();setTimeout(function(){URL.revokeObjectURL(u)},4000);toast("已匯出")}
 }
 document.addEventListener("click",function(ev){
-  var el=ev.target.closest("[data-a],[data-cat],[data-edit],[data-proj],[data-down],[data-fcat]");
+  var el=ev.target.closest("[data-a],[data-cat],[data-edit],[data-proj],[data-down],[data-fcat],[data-pdel],[data-pup],[data-pview]");
   if(!el||el.disabled)return;
   var a=el.dataset.a,p=cur();
+  if(el.dataset.pdel){
+    var di=ui.photos.findIndex(function(x){return x.id===el.dataset.pdel});
+    if(di>=0){var d0=ui.photos.splice(di,1)[0];if(!d0.blob)ui.removed.push(d0.id);if(urls[d0.id]){URL.revokeObjectURL(urls[d0.id]);delete urls[d0.id]}}
+    refreshThumbs();return}
+  if(el.dataset.pup){
+    var it=ui.photos.find(function(x){return x.id===el.dataset.pup});
+    if(it.drive){toast("已上傳過");return}
+    if(!navigator.onLine||!cid()){toast(!cid()?"請先在「同步」設定用戶端 ID":"需要網路才能上傳");return}
+    toast("上傳中…");
+    uploadPhoto(it).then(function(){toast("已上傳到雲端硬碟");refreshThumbs()}).catch(function(e){toast("上傳失敗："+e.message)});
+    return}
+  if(el.dataset.pview){showViewer(el.dataset.pview);return}
+  if(a==="addPhoto"){
+    var f=$("#ph");f.onchange=function(){
+      var files=Array.prototype.slice.call(f.files||[]);f.value="";
+      files.reduce(function(pr,file){return pr.then(function(){return compress(file).then(function(b){ui.photos.push({id:uid(),blob:b,drive:""});refreshThumbs()})}).catch(function(e){toast(e.message)})},Promise.resolve());
+    };f.click();return}
   if(a==="scrim"){if(ev.target===el)close();return}
   if(el.dataset.cat){ui.cat=el.dataset.cat;render();return}
   if(el.dataset.edit){open("form",el.dataset.edit);return}
@@ -310,12 +391,17 @@ document.addEventListener("click",function(ev){
     if(!(amt>0)){toast("請輸入金額");return}
     var ce=document.querySelector('[data-fcat][aria-pressed="true"]');
     var rec={id:ui.editId||uid(),date:$("#f-date").value||today(),time:$("#f-time").value||"",place:$("#f-place").value.trim(),amount:amt,cat:ce?ce.dataset.fcat:"其他",pay:$("#f-pay").value,note:$("#f-note").value.trim()};
-    if(ui.editId)p.expenses=p.expenses.map(function(x){return x.id===ui.editId?rec:x});else p.expenses.push(rec);
-    touch();close();toast("已儲存");
+    var items=ui.photos||[],removed=ui.removed||[],eid=ui.editId;
+    Promise.all(items.filter(function(i){return i.blob}).map(function(i){return pPut(i.id,i.blob)})).catch(function(){toast("照片儲存失敗")})
+      .then(function(){return Promise.all(removed.map(pDel))}).then(function(){
+        rec.photos=items.map(function(i){return {id:i.id,drive:i.drive||""}});
+        if(eid)p.expenses=p.expenses.map(function(x){return x.id===eid?rec:x});else p.expenses.push(rec);
+        touch();close();toast("已儲存");
+      });
   }
   else if(a==="del"){
     if(!ui.confirmDel){ui.confirmDel=true;render();updTwd();return}
-    p.expenses=p.expenses.filter(function(x){return x.id!==ui.editId});touch();close();toast("已刪除");
+    var gone=p.expenses.find(function(x){return x.id===ui.editId});(gone&&gone.photos||[]).forEach(function(x){pDel(x.id)});p.expenses=p.expenses.filter(function(x){return x.id!==ui.editId});touch();close();toast("已刪除");
   }
   else if(a==="newProj"){
     var n=$("#np-name").value.trim();if(!n){toast("請輸入專案名稱");return}
@@ -327,7 +413,7 @@ document.addEventListener("click",function(ev){
   }
   else if(a==="delProj"){
     if(!ui.confirmDel){ui.confirmDel=true;render();return}
-    S.projects=S.projects.filter(function(x){return x.id!==p.id});
+    p.expenses.forEach(function(e){(e.photos||[]).forEach(function(x){pDel(x.id)})});S.projects=S.projects.filter(function(x){return x.id!==p.id});
     if(!S.projects.length)S.projects.push(newProject("新旅行"));
     S.current=S.projects[0].id;save();close();toast("已刪除專案");
   }
