@@ -86,6 +86,7 @@ var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folde
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
 function uid(){return Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4)}
+function nowT(){var d=new Date();return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')}
 function today(){var d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
 function newProject(name){return {id:uid(),name:name,rate:0.21,createdAt:Date.now(),updatedAt:Date.now(),expenses:[]}}
 function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
@@ -114,7 +115,7 @@ function folderName(){return (lsGet(FOLDER_KEY)||"").trim()||"旅費帳本"}
 function cid(){return (lsGet(CID_KEY)||"").trim()}
 
 function render(){
-  var p=cur(),ex=p.expenses.slice().sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:b.id>a.id?1:-1});
+  var p=cur(),ex=p.expenses.slice().sort(function(a,b){if(a.date!==b.date)return a.date<b.date?1:-1;var ta=a.time||'',tb=b.time||'';if(ta!==tb)return ta<tb?1:-1;return b.id>a.id?1:-1});
   var total=ex.reduce(function(s,e){return s+e.amount},0);
   var td=today(),tdSum=ex.filter(function(e){return e.date===td}).reduce(function(s,e){return s+e.amount},0);
   var days=new Set(ex.map(function(e){return e.date})).size;
@@ -132,7 +133,7 @@ function render(){
       h+='<div class="day num"><span>'+g.d+(g.d===td?"（今天）":"")+'</span><span>'+yen(s)+'</span></div><div class="group">';
       g.items.forEach(function(e){
         var c=CATS.find(function(x){return x[0]===e.cat})||CATS[5];
-        h+='<button class="item" data-edit="'+e.id+'"><span class="tag">'+c[1]+'</span><span class="t"><div>'+esc(e.note||e.cat)+'</div><small>'+esc(e.cat)+' · '+esc(e.pay)+'</small></span><span class="a num">'+yen(e.amount)+'<small>'+twd(e.amount,p.rate)+'</small></span></button>';
+        h+='<button class="item" data-edit="'+e.id+'"><span class="tag">'+c[1]+'</span><span class="t"><div>'+esc(e.note||e.cat)+'</div><small class="num">'+(e.time?esc(e.time)+' · ':'')+esc(e.cat)+' · '+esc(e.pay)+'</small></span><span class="a num">'+yen(e.amount)+'<small>'+twd(e.amount,p.rate)+'</small></span></button>';
       });
       h+='</div>';
     });
@@ -147,12 +148,13 @@ function sheetHTML(p){
   var b='';
   if(ui.sheet==="form"){
     var e=ui.editId?p.expenses.find(function(x){return x.id===ui.editId}):null;
-    var v=e||{date:today(),amount:"",cat:"餐飲",pay:"現金",note:""};
+    var v=e||{date:today(),time:nowT(),amount:"",cat:"餐飲",pay:"現金",note:""};
     b='<h2>'+(e?"編輯支出":"記一筆")+'</h2>'+
     '<label>金額（日圓）<input id="f-amt" class="amt num" type="number" inputmode="numeric" min="0" placeholder="0" value="'+esc(v.amount)+'"></label>'+
     '<div id="f-twd" class="hint num"></div>'+
     '<div><h3>類別</h3><div class="seg">'+CATS.map(function(c){return '<button class="chip" type="button" data-fcat="'+c[0]+'" aria-pressed="'+(v.cat===c[0])+'">'+c[0]+'</button>'}).join("")+'</div></div>'+
-    '<div class="two"><label>日期<input id="f-date" type="date" value="'+v.date+'"></label><label>付款方式<select id="f-pay">'+PAYS.map(function(x){return '<option'+(x===v.pay?' selected':'')+'>'+x+'</option>'}).join("")+'</select></label></div>'+
+    '<div class="two"><label>日期<input id="f-date" type="date" value="'+v.date+'"></label><label>時間<input id="f-time" type="time" value="'+esc(v.time||"")+'"></label></div>'+
+    '<label>付款方式<select id="f-pay">'+PAYS.map(function(x){return '<option'+(x===v.pay?' selected':'')+'>'+x+'</option>'}).join("")+'</select></label>'+
     '<label>備註<input id="f-note" type="text" placeholder="例如：一蘭拉麵" value="'+esc(v.note)+'"></label>'+
     '<div class="btns">'+(e?'<button class="btn danger" data-a="del">'+(ui.confirmDel?"再按一次刪除":"刪除")+'</button>':'<button class="btn ghost" data-a="close">取消</button>')+'<button class="btn" data-a="saveExp">儲存</button></div>';
   }else if(ui.sheet==="projects"){
@@ -286,7 +288,7 @@ document.addEventListener("click",function(ev){
     var amt=Math.round(+$("#f-amt").value);
     if(!(amt>0)){toast("請輸入金額");return}
     var ce=document.querySelector('[data-fcat][aria-pressed="true"]');
-    var rec={id:ui.editId||uid(),date:$("#f-date").value||today(),amount:amt,cat:ce?ce.dataset.fcat:"其他",pay:$("#f-pay").value,note:$("#f-note").value.trim()};
+    var rec={id:ui.editId||uid(),date:$("#f-date").value||today(),time:$("#f-time").value||"",amount:amt,cat:ce?ce.dataset.fcat:"其他",pay:$("#f-pay").value,note:$("#f-note").value.trim()};
     if(ui.editId)p.expenses=p.expenses.map(function(x){return x.id===ui.editId?rec:x});else p.expenses.push(rec);
     touch();close();toast("已儲存");
   }
@@ -322,10 +324,10 @@ document.addEventListener("click",function(ev){
   else if(a==="share"){saveFile(p.name+"-"+today()+".json","application/json",JSON.stringify(p,null,1),true)}
   else if(a==="csv"){
     var q2=function(v){v=String(v==null?"":v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
-    var rows=[["日期","類別","備註","付款方式","金額(日圓)","約合台幣"]];
-    p.expenses.slice().sort(function(x,y){return x.date<y.date?-1:x.date>y.date?1:0}).forEach(function(e){rows.push([e.date,e.cat,e.note,e.pay,e.amount,Math.round(e.amount*p.rate)])});
+    var rows=[["日期","時間","類別","備註","付款方式","金額(日圓)","約合台幣"]];
+    p.expenses.slice().sort(function(x,y){return x.date!==y.date?(x.date<y.date?-1:1):((x.time||"")<(y.time||"")?-1:(x.time||"")>(y.time||"")?1:0)}).forEach(function(e){rows.push([e.date,e.time||"",e.cat,e.note,e.pay,e.amount,Math.round(e.amount*p.rate)])});
     var tot=p.expenses.reduce(function(s2,e){return s2+e.amount},0);
-    rows.push(["合計","","","",tot,Math.round(tot*p.rate)]);
+    rows.push(["合計","","","","",tot,Math.round(tot*p.rate)]);
     saveFile(p.name+"-"+today()+".csv","text/csv","\ufeff"+rows.map(function(r){return r.map(q2).join(",")}).join("\r\n"),true);
   }
   else if(a==="import"){var f=$("#imp");f.onchange=function(){

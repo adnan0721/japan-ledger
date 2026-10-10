@@ -1,5 +1,5 @@
 // 離線快取：同網域檔案先用快取，背景更新。Google API 不經過這裡。
-var CACHE = "jpl-v3";
+var CACHE = "jpl-v4";
 var ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(ASSETS); }).then(function () { return self.skipWaiting(); }));
