@@ -177,8 +177,9 @@ function sheetHTML(p){
     }).join(""):'<p class="hint">雲端還沒有專案。</p>'):'')+
     '<label>Google OAuth 用戶端 ID（只需設定一次，步驟見 README）<input id="cid" type="text" autocomplete="off" autocapitalize="off" placeholder="xxxx.apps.googleusercontent.com" value="'+esc(cid())+'"></label>'+
     '<button class="btn ghost" data-a="saveCid">儲存用戶端 ID</button>'+
-    '<h3>備份成檔案</h3>'+
-    '<div class="btns"><button class="btn ghost" data-a="export">匯出檔案</button><button class="btn ghost" data-a="import">匯入檔案</button></div>'+
+    '<h3>備份與匯出</h3>'+
+    '<div class="btns"><button class="btn ghost" data-a="share">分享備份</button><button class="btn ghost" data-a="csv">匯出 Excel</button></div>'+
+    '<div class="btns"><button class="btn ghost" data-a="export">下載備份檔</button><button class="btn ghost" data-a="import">匯入備份檔</button></div>'+
     '<input id="imp" type="file" accept=".json,application/json" hidden>'+
     '<button class="btn ghost" data-a="close">關閉</button>';
   }
@@ -240,6 +241,15 @@ function uploadProject(p){
   });
 }
 
+function saveFile(name,mime,text,share){
+  name=name.replace(/[\\/:*?"<>|]/g,"_");
+  var file=new File([text],name,{type:mime});
+  if(share&&navigator.canShare&&navigator.canShare({files:[file]})){
+    navigator.share({files:[file]}).catch(function(e){if(e&&e.name!=="AbortError")dl()});return;
+  }
+  dl();
+  function dl(){var u=URL.createObjectURL(file),l=document.createElement("a");l.href=u;l.download=name;document.body.appendChild(l);l.click();l.remove();setTimeout(function(){URL.revokeObjectURL(u)},4000);toast("已匯出")}
+}
 document.addEventListener("click",function(ev){
   var el=ev.target.closest("[data-a],[data-cat],[data-edit],[data-proj],[data-down],[data-fcat]");
   if(!el||el.disabled)return;
@@ -297,11 +307,15 @@ document.addEventListener("click",function(ev){
     listCloud().then(function(l){ui.busy=false;ui.cloud=l.sort(function(x,y){return y.u-x.u});ui.msg="";render()})
       .catch(function(e){ui.busy=false;ui.msg="讀取失敗："+e.message;render()});
   }
-  else if(a==="export"){
-    var blob=new Blob([JSON.stringify(p,null,1)],{type:"application/json"});
-    var u=URL.createObjectURL(blob),l=document.createElement("a");
-    l.href=u;l.download=p.name.replace(/[\\/:*?"<>|]/g,"_")+".json";document.body.appendChild(l);l.click();l.remove();
-    setTimeout(function(){URL.revokeObjectURL(u)},4000);toast("已匯出");
+  else if(a==="export"){saveFile(p.name+".json","application/json",JSON.stringify(p,null,1),false)}
+  else if(a==="share"){saveFile(p.name+"-"+today()+".json","application/json",JSON.stringify(p,null,1),true)}
+  else if(a==="csv"){
+    var q2=function(v){v=String(v==null?"":v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+    var rows=[["日期","類別","備註","付款方式","金額(日圓)","約合台幣"]];
+    p.expenses.slice().sort(function(x,y){return x.date<y.date?-1:x.date>y.date?1:0}).forEach(function(e){rows.push([e.date,e.cat,e.note,e.pay,e.amount,Math.round(e.amount*p.rate)])});
+    var tot=p.expenses.reduce(function(s2,e){return s2+e.amount},0);
+    rows.push(["合計","","","",tot,Math.round(tot*p.rate)]);
+    saveFile(p.name+"-"+today()+".csv","text/csv","\ufeff"+rows.map(function(r){return r.map(q2).join(",")}).join("\r\n"),true);
   }
   else if(a==="import"){var f=$("#imp");f.onchange=function(){
     var file=f.files[0];if(!file)return;var rd=new FileReader();
