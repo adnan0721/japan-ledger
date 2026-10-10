@@ -85,7 +85,7 @@ input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and
 .th img{width:100%;height:100%;object-fit:cover;display:block}
 .th a{color:var(--accent);text-align:center;padding:4px}
 .th button{position:absolute;width:26px;height:26px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:13px;line-height:26px}
-.th .x{top:3px;right:3px}.th .up{bottom:3px;right:3px}
+.th .x{top:3px;right:3px}
 .viewer{position:fixed;inset:0;z-index:30;background:rgba(0,0,0,.92);display:grid;place-items:center;padding:16px}
 .viewer img{max-width:100%;max-height:100%;object-fit:contain}
 .ver{text-align:center;color:var(--muted);font-size:12px;padding-top:24px}
@@ -98,7 +98,7 @@ input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v17";
+var VERSION="v18";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -336,10 +336,10 @@ function compress(file){
   return new Promise(function(res,rej){
     var u=URL.createObjectURL(file),img=new Image();
     img.onload=function(){
-      var M=1280,k=Math.min(1,M/Math.max(img.width,img.height)),c=document.createElement("canvas");
+      var M=2560,k=Math.min(1,M/Math.max(img.width,img.height)),c=document.createElement("canvas");
       c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);
       c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);
-      c.toBlob(function(b){b?res(b):rej(new Error("壓縮失敗"))},"image/jpeg",0.72);
+      c.toBlob(function(b){b?res(b):rej(new Error("壓縮失敗"))},"image/jpeg",0.9);
     };
     img.onerror=function(){URL.revokeObjectURL(u);rej(new Error("無法讀取圖片"))};
     img.src=u;
@@ -349,7 +349,7 @@ function photoBlob(it){return it&&it.blob?Promise.resolve(it.blob):pGet(it.id)}
 function refreshThumbs(){
   var box=$("#thumbs");if(!box)return;
   box.innerHTML=(ui.photos||[]).map(function(it){
-    return '<div class="th"><img data-pid="'+it.id+'" data-pview="'+it.id+'" alt="收據"><button type="button" class="x" data-pdel="'+it.id+'" aria-label="刪除照片">✕</button><button type="button" class="up" data-pup="'+it.id+'" aria-label="上傳到雲端">'+(it.drive?'✓':'☁')+'</button></div>';
+    return '<div class="th"><img data-pid="'+it.id+'" data-pview="'+it.id+'" alt="收據"><button type="button" class="x" data-pdel="'+it.id+'" aria-label="刪除照片">✕</button></div>';
   }).join("");
   box.querySelectorAll("img[data-pid]").forEach(function(img){
     var id=img.dataset.pid,it=ui.photos.find(function(x){return x.id===id});
@@ -369,7 +369,6 @@ function uploadPhotoCore(it,dt,amt,folder){
     return drive("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id",{method:"POST",headers:{"Content-Type":"multipart/related; boundary="+B},body:body});
   }).then(function(r){return r.json()}).then(function(j){it.drive=j.id});
 }
-function uploadPhoto(it){return uploadPhotoCore(it,$("#f-date")?$("#f-date").value:today(),$("#f-amt")?$("#f-amt").value:"")}
 function pendingPhotos(p){var l=[];p.expenses.forEach(function(e){(e.photos||[]).forEach(function(x){if(!x.drive)l.push({x:x,e:e})})});return l}
 function showViewer(id){
   var it=(ui.photos||[]).find(function(x){return x.id===id});
@@ -437,20 +436,13 @@ function saveFile(name,mime,text,share){
   function dl(){var u=URL.createObjectURL(file),l=document.createElement("a");l.href=u;l.download=name;document.body.appendChild(l);l.click();l.remove();setTimeout(function(){URL.revokeObjectURL(u)},4000);toast("已匯出")}
 }
 document.addEventListener("click",function(ev){
-  var el=ev.target.closest("[data-a],[data-cat],[data-edit],[data-down],[data-fcat],[data-pdel],[data-pup],[data-pview]");
+  var el=ev.target.closest("[data-a],[data-cat],[data-edit],[data-down],[data-fcat],[data-pdel],[data-pview]");
   if(!el||el.disabled)return;
   var a=el.dataset.a,p=cur();
   if(el.dataset.pdel){
     var di=ui.photos.findIndex(function(x){return x.id===el.dataset.pdel});
     if(di>=0){var d0=ui.photos.splice(di,1)[0];if(!d0.blob)ui.removed.push(d0.id);if(urls[d0.id]){URL.revokeObjectURL(urls[d0.id]);delete urls[d0.id]}}
     refreshThumbs();return}
-  if(el.dataset.pup){
-    var it=ui.photos.find(function(x){return x.id===el.dataset.pup});
-    if(it.drive){toast("已上傳過");return}
-    if(!navigator.onLine||!cid()){toast(!cid()?"請先在「同步」設定用戶端 ID":"需要網路才能上傳");return}
-    toast("上傳中…");
-    uploadPhoto(it).then(function(){toast("已上傳到雲端硬碟");refreshThumbs()}).catch(function(e){toast("上傳失敗："+e.message)});
-    return}
   if(el.dataset.pview){showViewer(el.dataset.pview);return}
   if(a==="addPhoto"){
     var f=$("#ph");f.onchange=function(){
