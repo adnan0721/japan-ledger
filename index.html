@@ -98,7 +98,7 @@ input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v11";
+var VERSION="v12";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -210,7 +210,7 @@ function sheetHTML(p){
       return '<button class="pl" data-down="'+c.id+'"><div><b>'+esc(c.pname)+'</b><small class="num">'+c.n+' 筆 · 雲端 '+fmtT(c.u)+(loc?' · 手機 '+fmtT(loc.updatedAt):'')+'</small>'+(newer?'<small class="w">手機版本較新，下載會覆蓋手機上的內容</small>':'')+'</div><span>下載</span></button>';
     }).join(""):'<p class="hint">雲端還沒有專案。</p>'):'')+
     '<label>Google OAuth 用戶端 ID（只需設定一次，步驟見 README）<input id="cid" type="text" autocomplete="off" autocapitalize="off" placeholder="xxxx.apps.googleusercontent.com" value="'+esc(cid())+'"></label>'+
-    '<label>雲端資料夾名稱（首次上傳時建立，之後可在雲端硬碟改名或搬移，App 會自動找到）<input id="fname" type="text" value="'+esc(folderName())+'"></label>'+
+    '<label>雲端資料夾名稱（最外層，首次上傳時建立；每個專案會在裡面有自己的子資料夾）<input id="fname" type="text" value="'+esc(folderName())+'"></label>'+
     '<button class="btn ghost" data-a="saveCid">儲存設定</button>'+
     '<h3>程式版本</h3><div class="btns" style="align-items:center"><span class="num" style="flex:1">目前版本 '+VERSION+'</span><button class="btn ghost" data-a="update">更新到最新版</button></div>'+
     '<h3>備份與匯出</h3>'+
@@ -277,15 +277,36 @@ function ensureFolder(){
     return drive(base+"?fields=id",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:folderName(),mimeType:"application/vnd.google-apps.folder",appProperties:{jpfolder:"1"}})}).then(function(r){return r.json()}).then(function(f){return f.id});
   });
 }
+function projectFolder(p){
+  var base="https://www.googleapis.com/drive/v3/files";
+  return ensureFolder().then(function(root){
+    var q=encodeURIComponent("mimeType='application/vnd.google-apps.folder' and appProperties has { key='jpproj' and value='"+p.id+"' } and trashed=false");
+    return drive(base+"?q="+q+"&fields="+encodeURIComponent("files(id)")).then(function(r){return r.json()}).then(function(j){
+      if(j.files&&j.files.length)return j.files[0].id;
+      return drive(base+"?fields=id",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:p.name,mimeType:"application/vnd.google-apps.folder",parents:[root],appProperties:{jpproj:p.id}})}).then(function(r){return r.json()}).then(function(f){return f.id});
+    });
+  });
+}
+function moveToFolder(fileId,folder){
+  var base="https://www.googleapis.com/drive/v3/files/"+fileId;
+  return drive(base+"?fields=parents").then(function(r){return r.json()}).then(function(j){
+    var ps=j.parents||[];if(ps.length===1&&ps[0]===folder)return;
+    var rm=ps.filter(function(x){return x!==folder});
+    return drive(base+"?addParents="+folder+(rm.length?"&removeParents="+rm.join(","):""),{method:"PATCH",headers:{"Content-Type":"application/json"},body:"{}"});
+  });
+}
 function uploadProject(p){
-  return Promise.all([listCloud(),ensureFolder()]).then(function(res){
+  return Promise.all([listCloud(),projectFolder(p)]).then(function(res){
     var ex=res[0].find(function(f){return f.pid===p.id}),folder=res[1];
     var meta={name:"旅費帳本-"+p.name+".json",mimeType:"application/json",appProperties:{jpledger:"1",pid:p.id,pname:p.name.slice(0,60),n:String(p.expenses.length),u:String(p.updatedAt)}};
     if(!ex)meta.parents=[folder];
     var B="jpl"+uid(),body="--"+B+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+JSON.stringify(meta)+"\r\n--"+B+"\r\nContent-Type: application/json\r\n\r\n"+JSON.stringify(p)+"\r\n--"+B+"--";
     var url="https://www.googleapis.com/upload/drive/v3/files"+(ex?"/"+ex.id:"")+"?uploadType=multipart";
     if(ex){url+="&addParents="+folder;var rm=ex.parents.filter(function(x){return x!==folder});if(rm.length)url+="&removeParents="+rm.join(",")}
-    return drive(url,{method:ex?"PATCH":"POST",headers:{"Content-Type":"multipart/related; boundary="+B},body:body});
+    return drive(url,{method:ex?"PATCH":"POST",headers:{"Content-Type":"multipart/related; boundary="+B},body:body}).then(function(){
+      var ids=[];p.expenses.forEach(function(e){(e.photos||[]).forEach(function(x){if(x.drive)ids.push(x.drive)})});
+      return ids.reduce(function(pr,id){return pr.then(function(){return moveToFolder(id,folder).catch(function(){})})},Promise.resolve());
+    });
   });
 }
 
@@ -325,7 +346,7 @@ function refreshThumbs(){
   });
 }
 function uploadPhotoCore(it,dt,amt,folder){
-  return Promise.all([photoBlob(it),folder||ensureFolder()]).then(function(r){
+  return Promise.all([photoBlob(it),folder||projectFolder(cur())]).then(function(r){
     if(!r[0])throw new Error("找不到照片檔");
     var meta={name:"收據-"+dt+"-"+(amt||"0")+"-"+it.id.slice(0,4)+".jpg",mimeType:"image/jpeg",parents:[r[1]],appProperties:{jpphoto:"1"}};
     var B="jpp"+uid(),pre="--"+B+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+JSON.stringify(meta)+"\r\n--"+B+"\r\nContent-Type: image/jpeg\r\n\r\n";
@@ -427,7 +448,7 @@ document.addEventListener("click",function(ev){
   else if(a==="upPhotos"){
     var todo=pendingPhotos(p),done=0,skipped=0;
     ui.busy=true;ui.msg="準備上傳 "+todo.length+" 張照片…";render();
-    ensureFolder().then(function(folder){
+    projectFolder(p).then(function(folder){
       return todo.reduce(function(pr,t,i){return pr.then(function(){
         ui.msg="上傳照片 "+(i+1)+"/"+todo.length+"…";render();
         return photoBlob(t.x).then(function(b){
