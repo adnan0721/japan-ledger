@@ -100,7 +100,7 @@ input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radiu
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v21";
+var VERSION="v22";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder", GKEY="jp-ledger-gemini", GMODEL="jp-ledger-gmodel";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -224,7 +224,7 @@ function sheetHTML(p){
     '<label>Google OAuth 用戶端 ID（只需設定一次，步驟見 README）<input id="cid" type="text" autocomplete="off" autocapitalize="off" placeholder="xxxx.apps.googleusercontent.com" value="'+esc(cid())+'"></label>'+
     '<label>雲端資料夾名稱（最外層，首次上傳時建立；每個專案會在裡面有自己的子資料夾）<input id="fname" type="text" value="'+esc(folderName())+'"></label>'+
     '<label>Gemini API 金鑰（辨識收據用，只存在這支手機，請勿分享）<input id="gkey" type="password" autocomplete="off" autocapitalize="off" value="'+esc(geminiKey())+'"></label>'+
-    '<label>Gemini 模型名稱<input id="gmodel" type="text" autocapitalize="off" placeholder="gemini-flash-latest" value="'+esc(lsGet(GMODEL)||"")+'"></label>'+
+    '<label>Gemini 模型名稱<input id="gmodel" type="text" autocapitalize="off" placeholder="gemini-flash-lite-latest" value="'+esc(lsGet(GMODEL)||"")+'"></label>'+
     '<p class="hint">辨識時會把壓縮後的收據照片送到 Google 的 Gemini 服務。免費額度的資料可能被 Google 用來改善產品。</p>'+
     '<button class="btn ghost" data-a="saveCid">儲存設定</button>'+
     '<h3>程式版本</h3><div class="btns" style="align-items:center"><span class="num" style="flex:1">目前版本 '+VERSION+'</span><button class="btn ghost" data-a="update">更新到最新版</button></div>'+
@@ -377,7 +377,7 @@ function uploadPhotoCore(it,dt,amt,folder){
 }
 function pendingPhotos(p){var l=[];p.expenses.forEach(function(e){(e.photos||[]).forEach(function(x){if(!x.drive)l.push({x:x,e:e})})});return l}
 function geminiKey(){return (lsGet(GKEY)||"").trim()}
-function geminiModel(){return (lsGet(GMODEL)||"").trim()||"gemini-flash-latest"}
+function geminiModel(){return (lsGet(GMODEL)||"").trim()||"gemini-flash-lite-latest"}
 function blobB64(b){return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(String(r.result).split(",")[1])};r.onerror=rej;r.readAsDataURL(b)})}
 function recognize(blob){
   return blobB64(blob).then(function(b64){
