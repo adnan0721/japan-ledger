@@ -98,7 +98,7 @@ input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v14";
+var VERSION="v15";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -124,6 +124,15 @@ function touch(){cur().updatedAt=Date.now();save()}
 var ui={cat:"全部",sheet:null,editId:null,confirmDel:false,cloud:null,msg:"",busy:false};
 var $=function(s){return document.querySelector(s)};
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+function fmtB(n){return n<=0?'0 KB':n<1048576?Math.max(1,Math.round(n/1024))+' KB':(n/1048576).toFixed(1)+' MB'}
+function projBytes(p){
+  var xs=[];p.expenses.forEach(function(e){(e.photos||[]).forEach(function(x){xs.push(x)})});
+  var json=new Blob([JSON.stringify(p)]).size,dirty=false;
+  return Promise.all(xs.map(function(x){
+    if(typeof x.size==='number')return x.size;
+    return pGet(x.id).then(function(b){x.size=b?b.size:0;dirty=true;return x.size}).catch(function(){return 0});
+  })).then(function(a){if(dirty)save();return a.reduce(function(s2,v){return s2+v},json)});
+}
 function yen(n){return "¥"+Math.round(n).toLocaleString("en-US")}
 function twd(n,r){return "NT$"+Math.round(n*r).toLocaleString("en-US")}
 function fmtT(t){return new Date(t).toLocaleString("zh-TW",{hour12:false,month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})}
@@ -189,11 +198,11 @@ function sheetHTML(p){
     var rdy=navigator.onLine&&!!cid()&&!ui.busy,tot=p.expenses.reduce(function(s2,e){return s2+e.amount},0);
     b='<h2>切換專案</h2>'+
     '<p class="hint">手機只保留目前專案。切換時會先把目前專案（含照片）上傳到雲端，再把要切換的專案連同照片下載下來。需要網路。</p>'+
-    '<div class="pl on"><div><b>'+esc(p.name)+'</b><small class="num">目前 · '+p.expenses.length+' 筆 · '+yen(tot)+'</small></div><span>✓</span></div>'+
+    '<div class="pl on"><div><b>'+esc(p.name)+'</b><small class="num">目前 · '+p.expenses.length+' 筆 · '+yen(tot)+' · 手機 '+(ui.localBytes==null?'計算中…':fmtB(ui.localBytes))+'</small></div><span>✓</span></div>'+
     (ui.msg?'<p class="hint">'+esc(ui.msg)+'</p>':'')+
     (!cid()?'<p class="hint">尚未設定 Google 用戶端 ID，請到「同步」設定後才能切換專案。</p>':!navigator.onLine?'<p class="hint">離線中，無法切換專案。</p>':'')+
     (ui.cloud?ui.cloud.filter(function(c){return c.pid!==p.id}).map(function(c){
-      return '<button class="pl" data-down="'+c.id+'"'+(rdy?'':' disabled')+'><div><b>'+esc(c.pname)+'</b><small class="num">'+c.n+' 筆 · 雲端更新 '+fmtT(c.u)+'</small></div><span>切換</span></button>';
+      return '<button class="pl" data-down="'+c.id+'"'+(rdy?'':' disabled')+'><div><b>'+esc(c.pname)+'</b><small class="num">'+c.n+' 筆 · '+(c.b?fmtB(c.b)+' · ':'')+'雲端更新 '+fmtT(c.u)+'</small></div><span>切換</span></button>';
     }).join("")+(ui.cloud.filter(function(c){return c.pid!==p.id}).length?'':'<p class="hint">雲端沒有其他專案。</p>'):'')+
     '<h3>新增旅行專案</h3><div class="btns"><input id="np-name" type="text" placeholder="例如：大阪京都 2026 春"><button class="btn" data-a="newProj" style="flex:none"'+(rdy?'':' disabled')+'>建立</button></div>'+
     '<h3>目前專案設定</h3><div class="two"><label>專案名稱<input id="ps-name" type="text" value="'+esc(p.name)+'"></label><label>匯率（日圓→台幣）<input id="ps-rate" type="number" inputmode="decimal" step="0.001" value="'+p.rate+'"></label></div>'+
@@ -224,7 +233,7 @@ function sheetHTML(p){
 }
 
 function placeList(){var m={};S.projects.forEach(function(q){q.expenses.forEach(function(e){if(e.place)m[e.place]=(m[e.place]||0)+1})});return Object.keys(m).sort(function(a,b){return m[b]-m[a]}).slice(0,30)}
-function open(s,id){if(s==="form"){var ee=id&&cur().expenses.find(function(x){return x.id===id});ui.photos=ee&&ee.photos?ee.photos.map(function(x){return {id:x.id,drive:x.drive||''}}):[];ui.removed=[]}
+function open(s,id){if(s==="form"){var ee=id&&cur().expenses.find(function(x){return x.id===id});ui.photos=ee&&ee.photos?ee.photos.map(function(x){return {id:x.id,drive:x.drive||'',size:x.size}}):[];ui.removed=[]}
   ui.sheet=s;ui.editId=id||null;ui.confirmDel=false;render();if(s==="form")updTwd()}
 function close(){ui.sheet=null;ui.editId=null;ui.confirmDel=false;render()}
 function updTwd(){var a=$("#f-amt"),t=$("#f-twd");if(a&&t){var n=+a.value||0;t.textContent=n?"約 "+twd(n,cur().rate):""}}
@@ -267,7 +276,7 @@ function drive(url,opt){
 function listCloud(){
   var q=encodeURIComponent("appProperties has { key='jpledger' and value='1' } and trashed=false");
   return drive("https://www.googleapis.com/drive/v3/files?q="+q+"&fields="+encodeURIComponent("files(id,parents,appProperties)")+"&pageSize=100").then(function(r){return r.json()}).then(function(j){
-    return (j.files||[]).map(function(f){var a=f.appProperties||{};return {id:f.id,parents:f.parents||[],pid:a.pid,pname:a.pname||"(未命名)",n:+a.n||0,u:+a.u||0}});
+    return (j.files||[]).map(function(f){var a=f.appProperties||{};return {id:f.id,parents:f.parents||[],pid:a.pid,pname:a.pname||"(未命名)",n:+a.n||0,u:+a.u||0,b:+a.b||0}});
   });
 }
 function ensureFolder(){
@@ -301,9 +310,9 @@ function moveToFolder(fileId,folder){
   });
 }
 function uploadProject(p){
-  return Promise.all([listCloud(),projectFolder(p)]).then(function(res){
+  return Promise.all([listCloud(),projectFolder(p),projBytes(p)]).then(function(res){
     var ex=res[0].find(function(f){return f.pid===p.id}),folder=res[1];
-    var meta={name:"旅費帳本-"+p.name+".json",mimeType:"application/json",appProperties:{jpledger:"1",pid:p.id,pname:p.name.slice(0,60),n:String(p.expenses.length),u:String(p.updatedAt)}};
+    var meta={name:"旅費帳本-"+p.name+".json",mimeType:"application/json",appProperties:{jpledger:"1",pid:p.id,pname:p.name.slice(0,60),n:String(p.expenses.length),u:String(p.updatedAt),b:String(res[2])}};
     if(!ex)meta.parents=[folder];
     var B="jpl"+uid(),body="--"+B+"\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"+JSON.stringify(meta)+"\r\n--"+B+"\r\nContent-Type: application/json\r\n\r\n"+JSON.stringify(p)+"\r\n--"+B+"--";
     var url="https://www.googleapis.com/upload/drive/v3/files"+(ex?"/"+ex.id:"")+"?uploadType=multipart";
@@ -445,7 +454,7 @@ document.addEventListener("click",function(ev){
   if(a==="addPhoto"){
     var f=$("#ph");f.onchange=function(){
       var files=Array.prototype.slice.call(f.files||[]);f.value="";
-      files.reduce(function(pr,file){return pr.then(function(){return compress(file).then(function(b){ui.photos.push({id:uid(),blob:b,drive:""});refreshThumbs()})}).catch(function(e){toast(e.message)})},Promise.resolve());
+      files.reduce(function(pr,file){return pr.then(function(){return compress(file).then(function(b){ui.photos.push({id:uid(),blob:b,size:b.size,drive:""});refreshThumbs()})}).catch(function(e){toast(e.message)})},Promise.resolve());
     };f.click();return}
   if(a==="scrim"){if(ev.target===el)close();return}
   if(el.dataset.cat){ui.cat=el.dataset.cat;render();return}
@@ -461,7 +470,7 @@ document.addEventListener("click",function(ev){
     }).catch(failSwitch);
     return}
   if(a==="add")open("form");
-  else if(a==="projects"){ui.cloud=null;ui.msg="";open("projects");loadCloudList()}
+  else if(a==="projects"){ui.cloud=null;ui.msg="";ui.localBytes=null;open("projects");loadCloudList();projBytes(p).then(function(n){ui.localBytes=n;if(ui.sheet==="projects"&&!ui.busy)render()})}
   else if(a==="sync"){ui.cloud=null;ui.msg=cid()?"":"請先在下方填入 Google OAuth 用戶端 ID。";open("sync");if(navigator.onLine&&cid())loadGsi().catch(function(){})}
   else if(a==="close")close();
   else if(a==="saveCid"){lsSet(CID_KEY,$("#cid").value.trim());lsSet(FOLDER_KEY,$("#fname").value.trim());tok=null;ui.msg="已儲存設定";render();if(navigator.onLine)loadGsi().catch(function(){})}
@@ -473,7 +482,7 @@ document.addEventListener("click",function(ev){
     var items=ui.photos||[],removed=ui.removed||[],eid=ui.editId;
     Promise.all(items.filter(function(i){return i.blob}).map(function(i){return pPut(i.id,i.blob)})).catch(function(){toast("照片儲存失敗")})
       .then(function(){return Promise.all(removed.map(pDel))}).then(function(){
-        rec.photos=items.map(function(i){return {id:i.id,drive:i.drive||""}});
+        rec.photos=items.map(function(i){return {id:i.id,drive:i.drive||"",size:i.size}});
         if(eid)p.expenses=p.expenses.map(function(x){return x.id===eid?rec:x});else p.expenses.push(rec);
         touch();close();toast("已儲存");
       });
