@@ -100,7 +100,7 @@ input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radiu
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v22";
+var VERSION="v23";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder", GKEY="jp-ledger-gemini", GMODEL="jp-ledger-gmodel";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -195,7 +195,7 @@ function sheetHTML(p){
     '<label>付款方式<select id="f-pay">'+PAYS.map(function(x){return '<option'+(x===v.pay?' selected':'')+'>'+x+'</option>'}).join("")+'</select></label>'+
  '<label>地點<input id="f-place" type="text" list="places" placeholder="例如：淺草、新宿站" value="'+esc(v.place||"")+'"></label><datalist id="places">'+placeList().map(function(x){return '<option value="'+esc(x)+'">'}).join("")+'</datalist>'+
     '<div><h3>照片（收據）</h3><div id="thumbs" class="thumbs"></div><button class="btn ghost" type="button" data-a="addPhoto" style="width:100%">拍照／選照片</button><button class="btn ghost" type="button" data-a="ocr" style="width:100%;margin-top:8px">辨識收據（Gemini）</button><p id="ocr-msg" class="hint"></p><input id="ph" type="file" accept="image/*" multiple hidden></div>'+
-    '<label>備註<input id="f-note" type="text" placeholder="例如：一蘭拉麵" value="'+esc(v.note)+'"></label>'+
+    '<label>備註<textarea id="f-note" rows="3" placeholder="例如：一蘭拉麵，可多行">'+esc(v.note)+'</textarea></label>'+
     '<div class="btns">'+(e?'<button class="btn danger" data-a="del">'+(ui.confirmDel?"再按一次刪除":"刪除")+'</button>':'<button class="btn ghost" data-a="close">取消</button>')+'<button class="btn" data-a="saveExp">儲存</button></div>';
   }else if(ui.sheet==="projects"){
     var rdy=navigator.onLine&&!!cid()&&!ui.busy,tot=p.expenses.reduce(function(s2,e){return s2+e.amount},0);
