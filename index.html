@@ -101,7 +101,7 @@ input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radiu
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v25";
+var VERSION="v26";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder", GKEY="jp-ledger-gemini", GMODEL="jp-ledger-gmodel";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -502,13 +502,15 @@ function ensureBook(root){
     return drive("https://www.googleapis.com/drive/v3/files?fields=id",jreq("POST",{name:"旅費總表",mimeType:"application/vnd.google-apps.spreadsheet",parents:[root],appProperties:{jpbook:"1"}})).then(function(r){return r.json()}).then(function(f){return f.id});
   });
 }
+function memoLines(p){return Math.min(12,(p.memo||"").split("\n").reduce(function(n,l){return n+Math.max(1,Math.ceil(l.length/40))},0)||1)}
 function projectRows(p){
-  var rows=[["日期","時間","地點","類別","備註","付款方式","金額（日圓）","約合台幣","照片"]];
+  var rows=[["專案",p.name],["出發日",p.start||""],["回程日",p.end||""],["備註",p.memo||""],[],
+    ["日期","時間","地點","類別","備註","付款方式","金額（日圓）","約合台幣","照片"]];
   p.expenses.slice().sort(function(a,b){return a.date!==b.date?(a.date<b.date?-1:1):((a.time||"")<(b.time||"")?-1:(a.time||"")>(b.time||"")?1:0)}).forEach(function(e){
     rows.push([e.date,e.time||"",e.place||"",e.cat,e.note||"",e.pay,e.amount,Math.round(e.amount*p.rate),(e.photos||[]).filter(function(x){return x.drive}).map(function(x){return "https://drive.google.com/file/d/"+x.drive+"/view"}).join("\n")]);
   });
   var n=p.expenses.length;
-  rows.push(["合計","","","","","","=SUM(G2:G"+(n+1)+")","=SUM(H2:H"+(n+1)+")",""]);
+  rows.push(["合計","","","","","","=SUM(G7:G"+(n+6)+")","=SUM(H7:H"+(n+6)+")",""]);
   return rows;
 }
 function overviewRows(list){
@@ -538,8 +540,8 @@ function buildBook(){
   }).then(function(projects){
     ui.msg="寫入試算表…";render();
     projects.sort(function(a,b){var x=a.p.start||"9999",y=b.p.start||"9999";return x!==y?(x<y?-1:1):(a.p.createdAt-b.p.createdAt)});
-    var used={"總覽":1},tabs={"總覽":overviewRows(projects)},order=["總覽"];
-    projects.forEach(function(it){var t=safeTitle(it.p.name,used);tabs[t]=projectRows(it.p);order.push(t)});
+    var used={"總覽":1},tabs={"總覽":overviewRows(projects)},order=["總覽"],lines={};
+    projects.forEach(function(it){var t=safeTitle(it.p.name,used);tabs[t]=projectRows(it.p);lines[t]=memoLines(it.p);order.push(t)});
     var meta="?fields="+encodeURIComponent("sheets.properties(sheetId,title)");
     return sheetsApi("/"+bookId+meta).then(function(m){
       var have={};(m.sheets||[]).forEach(function(s2){have[s2.properties.title]=s2.properties.sheetId});
@@ -553,13 +555,24 @@ function buildBook(){
     }).then(function(){
       return sheetsApi("/"+bookId+"/values:batchUpdate",jreq("POST",{valueInputOption:"USER_ENTERED",data:order.map(function(t){return {range:qTitle(t)+"!A1",values:tabs[t]}})}));
     }).then(function(){
-      var reqs=[];
+      var reqs=[],hdr={userEnteredFormat:{textFormat:{bold:true},backgroundColor:{red:0.9,green:0.93,blue:0.97}}};
       order.forEach(function(t,i){
         var id=sheetIds[t];if(id==null)return;
-        reqs.push({repeatCell:{range:{sheetId:id,startRowIndex:0,endRowIndex:1},cell:{userEnteredFormat:{textFormat:{bold:true},backgroundColor:{red:0.9,green:0.93,blue:0.97}}},fields:"userEnteredFormat(textFormat,backgroundColor)"}});
-        reqs.push({updateSheetProperties:{properties:{sheetId:id,index:i,gridProperties:{frozenRowCount:1}},fields:"index,gridProperties.frozenRowCount"}});
-        reqs.push({repeatCell:{range:{sheetId:id,startRowIndex:1,startColumnIndex:i===0?4:6,endColumnIndex:i===0?6:8},cell:{userEnteredFormat:{numberFormat:{type:"NUMBER",pattern:"#,##0"}}},fields:"userEnteredFormat.numberFormat"}});
-        reqs.push({autoResizeDimensions:{dimensions:{sheetId:id,dimension:"COLUMNS",startIndex:0,endIndex:i===0?9:8}}});
+        if(i===0){
+          reqs.push({repeatCell:{range:{sheetId:id,startRowIndex:0,endRowIndex:1},cell:hdr,fields:"userEnteredFormat(textFormat,backgroundColor)"}});
+          reqs.push({updateSheetProperties:{properties:{sheetId:id,index:0,gridProperties:{frozenRowCount:1}},fields:"index,gridProperties.frozenRowCount"}});
+          reqs.push({repeatCell:{range:{sheetId:id,startRowIndex:1,startColumnIndex:4,endColumnIndex:6},cell:{userEnteredFormat:{numberFormat:{type:"NUMBER",pattern:"#,##0"}}},fields:"userEnteredFormat.numberFormat"}});
+          reqs.push({autoResizeDimensions:{dimensions:{sheetId:id,dimension:"COLUMNS",startIndex:0,endIndex:9}}});
+        }else{
+          reqs.push({updateSheetProperties:{properties:{sheetId:id,index:i},fields:"index"}});
+          reqs.push({repeatCell:{range:{sheetId:id,startRowIndex:0,endRowIndex:4,startColumnIndex:0,endColumnIndex:1},cell:hdr,fields:"userEnteredFormat(textFormat,backgroundColor)"}});
+          reqs.push({repeatCell:{range:{sheetId:id,startRowIndex:5,endRowIndex:6},cell:hdr,fields:"userEnteredFormat(textFormat,backgroundColor)"}});
+          reqs.push({mergeCells:{range:{sheetId:id,startRowIndex:3,endRowIndex:4,startColumnIndex:1,endColumnIndex:9},mergeType:"MERGE_ALL"}});
+          reqs.push({repeatCell:{range:{sheetId:id,startRowIndex:0,endRowIndex:4,startColumnIndex:1,endColumnIndex:9},cell:{userEnteredFormat:{wrapStrategy:"WRAP",verticalAlignment:"TOP",horizontalAlignment:"LEFT"}},fields:"userEnteredFormat(wrapStrategy,verticalAlignment,horizontalAlignment)"}});
+          reqs.push({updateDimensionProperties:{range:{sheetId:id,dimension:"ROWS",startIndex:3,endIndex:4},properties:{pixelSize:Math.max(21,21*lines[t]+4)},fields:"pixelSize"}});
+          reqs.push({repeatCell:{range:{sheetId:id,startRowIndex:6,startColumnIndex:6,endColumnIndex:8},cell:{userEnteredFormat:{numberFormat:{type:"NUMBER",pattern:"#,##0"}}},fields:"userEnteredFormat.numberFormat"}});
+          reqs.push({autoResizeDimensions:{dimensions:{sheetId:id,dimension:"COLUMNS",startIndex:0,endIndex:8}}});
+        }
       });
       return sheetsApi("/"+bookId+":batchUpdate",jreq("POST",{requests:reqs}));
     }).then(function(){
