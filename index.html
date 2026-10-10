@@ -81,6 +81,7 @@ input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radiu
 .hint{font-size:12px;color:var(--muted);margin:0}
 .status{display:flex;gap:8px;align-items:center;font-size:13px}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--warn)}.dot.on{background:#2f9d63}
+.chg{outline:2px solid var(--accent);outline-offset:1px;background:var(--soft)}
 .thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
 .thumbs:empty{display:none}
 .th{position:relative;width:76px;height:76px;border-radius:10px;overflow:hidden;background:var(--soft);display:grid;place-items:center;font-size:11px;color:var(--accent)}
@@ -100,7 +101,7 @@ input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radiu
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v23";
+var VERSION="v24";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder", GKEY="jp-ledger-gemini", GMODEL="jp-ledger-gmodel";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -400,13 +401,33 @@ function recognize(blob){
 }
 function setField(id,v){var el=$(id);if(!el||v==null||v==="")return;el.value=v;el.dispatchEvent(new Event("input",{bubbles:true}))}
 function applyOcr(o){
-  if(o.amount>0)setField("#f-amt",Math.round(o.amount));
-  if(/^\d{4}-\d{2}-\d{2}$/.test(o.date||""))setField("#f-date",o.date);
-  if(/^\d{1,2}:\d{2}$/.test(o.time||""))setField("#f-time",o.time.length===4?"0"+o.time:o.time);
-  setField("#f-place",(o.place||"").trim());
-  if(o.note&&!$("#f-note").value.trim())setField("#f-note",o.note.trim());
-  if(CATS.some(function(c){return c[0]===o.category}))document.querySelectorAll("[data-fcat]").forEach(function(b){b.setAttribute("aria-pressed",b.dataset.fcat===o.category)});
-  if(PAYS.indexOf(o.payment)>=0)$("#f-pay").value=o.payment;
+  var ch=[];
+  function setIf(sel,label,v,show,isDt){
+    if(v==null||v==="")return;
+    var el=$(sel),old=el.value;if(String(old)===String(v))return;
+    setField(sel,v);(isDt?el.parentNode:el).classList.add("chg");
+    ch.push(label+(old!==""?"（"+show(old)+" → "+show(v)+"）":"（新增）"));
+  }
+  var id=function(x){return x};
+  if(o.amount>0)setIf("#f-amt","金額",Math.round(o.amount),function(n){return "¥"+Number(n).toLocaleString("en-US")});
+  if(/^\d{4}-\d{2}-\d{2}$/.test(o.date||""))setIf("#f-date","日期",o.date,id,true);
+  if(/^\d{1,2}:\d{2}$/.test(o.time||""))setIf("#f-time","時間",o.time.length===4?"0"+o.time:o.time,id,true);
+  setIf("#f-place","地點",(o.place||"").trim(),id);
+  if(CATS.some(function(c){return c[0]===o.category})){
+    var oldc=document.querySelector('[data-fcat][aria-pressed="true"]');
+    if(!oldc||oldc.dataset.fcat!==o.category){
+      document.querySelectorAll("[data-fcat]").forEach(function(b){var on=b.dataset.fcat===o.category;b.setAttribute("aria-pressed",on);b.classList.toggle("chg",on)});
+      ch.push("類別（"+(oldc?oldc.dataset.fcat:"無")+" → "+o.category+"）");
+    }
+  }
+  if(PAYS.indexOf(o.payment)>=0&&$("#f-pay").value!==o.payment){var op=$("#f-pay").value;$("#f-pay").value=o.payment;$("#f-pay").classList.add("chg");ch.push("付款方式（"+op+" → "+o.payment+"）")}
+  var n=(o.note||"").trim();
+  if(n){
+    var cur=$("#f-note").value;
+    if(!cur.trim()){setField("#f-note",n);$("#f-note").classList.add("chg");ch.push("備註（新增）")}
+    else if(cur.toLowerCase().indexOf(n.toLowerCase())<0){setField("#f-note",cur.replace(/\s+$/,"")+"\n"+n);$("#f-note").classList.add("chg");ch.push("備註（已追加一行）")}
+  }
+  return ch;
 }
 function showViewer(id){
   var it=(ui.photos||[]).find(function(x){return x.id===id});
@@ -488,7 +509,7 @@ document.addEventListener("click",function(ev){
     if(!navigator.onLine){toast("需要網路才能辨識");return}
     if(!ui.photos.length){toast("請先拍照或選照片");return}
     el.disabled=true;om.textContent="辨識中…";
-    photoBlob(ui.photos[0]).then(recognize).then(function(o){applyOcr(o);om.textContent="已填入辨識結果，請確認金額、日期等欄位後再儲存。"})
+    photoBlob(ui.photos[0]).then(recognize).then(function(o){var ch=applyOcr(o);om.textContent=(ch.length?"辨識完成，有改變的欄位（已用色框標示）："+ch.join("、")+"。":"辨識完成，欄位沒有任何改變。")+"請確認後再儲存。"})
       .catch(function(e){om.textContent="辨識失敗："+e.message}).then(function(){el.disabled=false});
     return}
   if(a==="addPhoto"){
@@ -499,7 +520,7 @@ document.addEventListener("click",function(ev){
   if(a==="scrim"){if(ev.target===el)close();return}
   if(el.dataset.cat){ui.cat=el.dataset.cat;render();return}
   if(el.dataset.edit){open("form",el.dataset.edit);return}
-  if(el.dataset.fcat){document.querySelectorAll("[data-fcat]").forEach(function(b){b.setAttribute("aria-pressed",b===el)});return}
+  if(el.dataset.fcat){document.querySelectorAll("[data-fcat]").forEach(function(b){b.classList.remove("chg")});document.querySelectorAll("[data-fcat]").forEach(function(b){b.setAttribute("aria-pressed",b===el)});return}
   if(el.dataset.down){
     var item=(ui.cloud||[]).find(function(x){return x.id===el.dataset.down});if(!item)return;
     ui.busy=true;ui.msg="切換中…";render();
@@ -573,7 +594,7 @@ document.addEventListener("click",function(ev){
     rd.readAsText(file)};f.click()}
 });
 function onField(ev){
-  var t=ev.target;if(t.id==="f-amt")updTwd();
+  var t=ev.target;if(ev.isTrusted){t.classList.remove("chg");if(t.parentNode&&t.parentNode.classList)t.parentNode.classList.remove("chg")}if(t.id==="f-amt")updTwd();
   if(t.parentNode&&t.parentNode.classList&&t.parentNode.classList.contains("dt")){var sp=t.parentNode.firstChild;sp.textContent=t.value||t.dataset.ph;sp.className=t.value?"":"ph"}
 }
 document.addEventListener("input",onField);document.addEventListener("change",onField);
