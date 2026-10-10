@@ -64,8 +64,10 @@ input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radiu
 .amt{font-size:28px;font-weight:700;height:58px}
 .two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .two>label{min-width:0}
-input[type=date],input[type=time]{-webkit-appearance:none;appearance:none;display:block;min-width:0;max-width:100%;text-align:left;padding-inline:10px;font-size:15px}
-input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and-time-value{text-align:left;min-width:0}
+.dt{position:relative;height:46px;border-radius:10px;border:1px solid var(--line);background:var(--bg);display:flex;align-items:center;padding-inline:12px;font-size:16px;color:var(--fg);overflow:hidden}
+.dt span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.dt span.ph{color:var(--muted)}
+.dt input{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:0;padding:0;margin:0;font-size:16px;background:none}
 .seg{display:flex;flex-wrap:wrap;gap:8px}
 .btn{height:46px;padding-inline:16px;border-radius:12px;background:var(--accent);color:var(--accent-fg);font-weight:700}
 .btn.ghost{background:var(--soft);color:var(--accent)}
@@ -98,7 +100,7 @@ input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v19";
+var VERSION="v20";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -170,6 +172,7 @@ function render(){
   if(ui.sheet==="form")refreshThumbs();
 }
 
+function dtField(id,type,val,ph){return '<div class="dt"><span'+(val?'':' class="ph"')+'>'+esc(val||ph)+'</span><input id="'+id+'" type="'+type+'" value="'+esc(val||"")+'" data-ph="'+esc(ph)+'"></div>'}
 function md(d){return d?d.slice(5).replace('-','/'):''}
 function extraHTML(p,total){
   var h='',m=[];
@@ -188,7 +191,7 @@ function sheetHTML(p){
     '<label>金額（日圓）<input id="f-amt" class="amt num" type="number" inputmode="numeric" min="0" placeholder="0" value="'+esc(v.amount)+'"></label>'+
     '<div id="f-twd" class="hint num"></div>'+
     '<div><h3>類別</h3><div class="seg">'+CATS.map(function(c){return '<button class="chip" type="button" data-fcat="'+c[0]+'" aria-pressed="'+(v.cat===c[0])+'">'+c[0]+'</button>'}).join("")+'</div></div>'+
-    '<div class="two"><label>日期<input id="f-date" type="date" value="'+v.date+'"></label><label>時間<input id="f-time" type="time" value="'+esc(v.time||"")+'"></label></div>'+
+    '<div class="two"><label>日期'+dtField("f-date","date",v.date,"選擇日期")+'</label><label>時間'+dtField("f-time","time",v.time||"","選擇時間")+'</label></div>'+
     '<label>付款方式<select id="f-pay">'+PAYS.map(function(x){return '<option'+(x===v.pay?' selected':'')+'>'+x+'</option>'}).join("")+'</select></label>'+
  '<label>地點<input id="f-place" type="text" list="places" placeholder="例如：淺草、新宿站" value="'+esc(v.place||"")+'"></label><datalist id="places">'+placeList().map(function(x){return '<option value="'+esc(x)+'">'}).join("")+'</datalist>'+
     '<div><h3>照片（收據）</h3><div id="thumbs" class="thumbs"></div><button class="btn ghost" type="button" data-a="addPhoto" style="width:100%">拍照／選照片</button><input id="ph" type="file" accept="image/*" multiple hidden></div>'+
@@ -208,7 +211,7 @@ function sheetHTML(p){
     }).join("")+(ui.cloud.filter(function(c){return c.pid!==p.id}).length?'':'<p class="hint">雲端沒有其他專案。</p>'):'')+
     '<h3>新增旅行專案</h3><div class="btns"><input id="np-name" type="text" placeholder="例如：大阪京都 2026 春"><button class="btn" data-a="newProj" style="flex:none"'+(rdy?'':' disabled')+'>建立</button></div>'+
     '<h3>目前專案設定</h3><div class="two"><label>專案名稱<input id="ps-name" type="text" value="'+esc(p.name)+'"></label><label>匯率（日圓→台幣）<input id="ps-rate" type="number" inputmode="decimal" step="0.001" value="'+p.rate+'"></label></div>'+
-    '<div class="two"><label>出發日<input id="ps-start" type="date" value="'+esc(p.start||"")+'"></label><label>回程日<input id="ps-end" type="date" value="'+esc(p.end||"")+'"></label></div>'+
+    '<div class="two"><label>出發日'+dtField("ps-start","date",p.start||"","選擇日期")+'</label><label>回程日'+dtField("ps-end","date",p.end||"","選擇日期")+'</label></div>'+
     '<label>備註（住宿、航班、行程重點等，可多行）<textarea id="ps-memo" rows="4">'+esc(p.memo||"")+'</textarea></label>'+
     '<div class="btns"><button class="btn ghost" data-a="saveSet">更新設定</button><button class="btn danger" data-a="delProj">'+(ui.confirmDel?"再按一次確認":"從手機移除")+'</button></div>'+
     '<p class="hint">「從手機移除」只刪除手機上的資料，雲端已上傳的專案和照片會保留。</p>';
@@ -525,7 +528,11 @@ document.addEventListener("click",function(ev){
     rd.onload=function(){try{var o=JSON.parse(rd.result);if(!validProject(o))throw 0;mergeIn(o);close();toast("已匯入「"+o.name+"」")}catch(e){toast("檔案格式不正確")}};
     rd.readAsText(file)};f.click()}
 });
-document.addEventListener("input",function(ev){if(ev.target.id==="f-amt")updTwd()});
+function onField(ev){
+  var t=ev.target;if(t.id==="f-amt")updTwd();
+  if(t.parentNode&&t.parentNode.classList&&t.parentNode.classList.contains("dt")){var sp=t.parentNode.firstChild;sp.textContent=t.value||t.dataset.ph;sp.className=t.value?"":"ph"}
+}
+document.addEventListener("input",onField);document.addEventListener("change",onField);
 function netChange(){if(ui.sheet!=="form"&&ui.sheet!=="projects")render()}
 window.addEventListener("online",netChange);window.addEventListener("offline",netChange);
 if("serviceWorker" in navigator){var hadCtl=!!navigator.serviceWorker.controller;navigator.serviceWorker.addEventListener("controllerchange",function(){if(hadCtl&&!ui.sheet)location.reload();hadCtl=true})}
