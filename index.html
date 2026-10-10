@@ -98,7 +98,7 @@ input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v15";
+var VERSION="v16";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -201,6 +201,7 @@ function sheetHTML(p){
     '<div class="pl on"><div><b>'+esc(p.name)+'</b><small class="num">目前 · '+p.expenses.length+' 筆 · '+yen(tot)+' · 手機 '+(ui.localBytes==null?'計算中…':fmtB(ui.localBytes))+'</small></div><span>✓</span></div>'+
     (ui.msg?'<p class="hint">'+esc(ui.msg)+'</p>':'')+
     (!cid()?'<p class="hint">尚未設定 Google 用戶端 ID，請到「同步」設定後才能切換專案。</p>':!navigator.onLine?'<p class="hint">離線中，無法切換專案。</p>':'')+
+    (!ui.cloud&&!ui.busy&&navigator.onLine&&cid()?'<button class="btn ghost" data-a="loadCloud">連線 Google 並載入雲端專案</button>':'')+
     (ui.cloud?ui.cloud.filter(function(c){return c.pid!==p.id}).map(function(c){
       return '<button class="pl" data-down="'+c.id+'"'+(rdy?'':' disabled')+'><div><b>'+esc(c.pname)+'</b><small class="num">'+c.n+' 筆 · '+(c.b?fmtB(c.b)+' · ':'')+'雲端更新 '+fmtT(c.u)+'</small></div><span>切換</span></button>';
     }).join("")+(ui.cloud.filter(function(c){return c.pid!==p.id}).length?'':'<p class="hint">雲端沒有其他專案。</p>'):'')+
@@ -245,7 +246,9 @@ function mergeIn(p){
 function validProject(p){return p&&typeof p.id==="string"&&typeof p.name==="string"&&Array.isArray(p.expenses)}
 
 /* ---- Google Drive（只在按同步時才連網）---- */
-var gsiP=null,tok=null,tokExp=0;
+var gsiP=null,tok=null,tokExp=0,TOK_KEY="jp-ledger-tok";
+try{var _t=JSON.parse(lsGet(TOK_KEY)||"null");if(_t&&_t.e>Date.now()+60000){tok=_t.t;tokExp=_t.e}}catch(e){}
+function hasToken(){return !!tok&&Date.now()<tokExp-60000}
 function loadGsi(){
   if(window.google&&google.accounts&&google.accounts.oauth2)return Promise.resolve();
   if(!gsiP)gsiP=new Promise(function(res,rej){
@@ -259,7 +262,7 @@ function getToken(){
   if(tok&&Date.now()<tokExp-60000)return Promise.resolve(tok);
   return loadGsi().then(function(){return new Promise(function(res,rej){
     var c=google.accounts.oauth2.initTokenClient({client_id:cid(),scope:SCOPE,
-      callback:function(r){if(r.error)rej(new Error(r.error_description||r.error));else{tok=r.access_token;tokExp=Date.now()+r.expires_in*1000;res(tok)}},
+      callback:function(r){if(r.error)rej(new Error(r.error_description||r.error));else{tok=r.access_token;tokExp=Date.now()+r.expires_in*1000;lsSet(TOK_KEY,JSON.stringify({t:tok,e:tokExp}));res(tok)}},
       error_callback:function(e){rej(new Error(e&&e.type==="popup_closed"?"已取消登入":"登入失敗（"+(e&&e.type||"未知")+"）"))}});
     c.requestAccessToken();
   })});
@@ -470,7 +473,8 @@ document.addEventListener("click",function(ev){
     }).catch(failSwitch);
     return}
   if(a==="add")open("form");
-  else if(a==="projects"){ui.cloud=null;ui.msg="";ui.localBytes=null;open("projects");loadCloudList();projBytes(p).then(function(n){ui.localBytes=n;if(ui.sheet==="projects"&&!ui.busy)render()})}
+  else if(a==="loadCloud"){loadCloudList()}
+  else if(a==="projects"){ui.cloud=null;ui.msg="";ui.localBytes=null;open("projects");(hasToken()?loadCloudList():(navigator.onLine&&cid()?loadGsi().catch(function(){}):0));projBytes(p).then(function(n){ui.localBytes=n;if(ui.sheet==="projects"&&!ui.busy)render()})}
   else if(a==="sync"){ui.cloud=null;ui.msg=cid()?"":"請先在下方填入 Google OAuth 用戶端 ID。";open("sync");if(navigator.onLine&&cid())loadGsi().catch(function(){})}
   else if(a==="close")close();
   else if(a==="saveCid"){lsSet(CID_KEY,$("#cid").value.trim());lsSet(FOLDER_KEY,$("#fname").value.trim());tok=null;ui.msg="已儲存設定";render();if(navigator.onLine)loadGsi().catch(function(){})}
