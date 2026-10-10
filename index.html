@@ -101,7 +101,7 @@ input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radiu
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v26";
+var VERSION="v27";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder", GKEY="jp-ledger-gemini", GMODEL="jp-ledger-gmodel";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -506,11 +506,14 @@ function memoLines(p){return Math.min(12,(p.memo||"").split("\n").reduce(functio
 function projectRows(p){
   var rows=[["專案",p.name],["出發日",p.start||""],["回程日",p.end||""],["備註",p.memo||""],[],
     ["日期","時間","地點","類別","備註","付款方式","金額（日圓）","約合台幣","照片"]];
+  var prev=null;
   p.expenses.slice().sort(function(a,b){return a.date!==b.date?(a.date<b.date?-1:1):((a.time||"")<(b.time||"")?-1:(a.time||"")>(b.time||"")?1:0)}).forEach(function(e){
+    if(prev!==null&&e.date!==prev)rows.push([]);
+    prev=e.date;
     rows.push([e.date,e.time||"",e.place||"",e.cat,e.note||"",e.pay,e.amount,Math.round(e.amount*p.rate),(e.photos||[]).filter(function(x){return x.drive}).map(function(x){return "https://drive.google.com/file/d/"+x.drive+"/view"}).join("\n")]);
   });
-  var n=p.expenses.length;
-  rows.push(["合計","","","","","","=SUM(G7:G"+(n+6)+")","=SUM(H7:H"+(n+6)+")",""]);
+  var last=rows.length;
+  rows.push(["合計","","","","","","=SUM(G7:G"+Math.max(7,last)+")","=SUM(H7:H"+Math.max(7,last)+")",""]);
   return rows;
 }
 function overviewRows(list){
