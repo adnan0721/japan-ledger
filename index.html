@@ -100,8 +100,8 @@ input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radiu
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v20";
-var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder";
+var VERSION="v21";
+var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder", GKEY="jp-ledger-gemini", GMODEL="jp-ledger-gmodel";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
 function uid(){return Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4)}
@@ -194,7 +194,7 @@ function sheetHTML(p){
     '<div class="two"><label>日期'+dtField("f-date","date",v.date,"選擇日期")+'</label><label>時間'+dtField("f-time","time",v.time||"","選擇時間")+'</label></div>'+
     '<label>付款方式<select id="f-pay">'+PAYS.map(function(x){return '<option'+(x===v.pay?' selected':'')+'>'+x+'</option>'}).join("")+'</select></label>'+
  '<label>地點<input id="f-place" type="text" list="places" placeholder="例如：淺草、新宿站" value="'+esc(v.place||"")+'"></label><datalist id="places">'+placeList().map(function(x){return '<option value="'+esc(x)+'">'}).join("")+'</datalist>'+
-    '<div><h3>照片（收據）</h3><div id="thumbs" class="thumbs"></div><button class="btn ghost" type="button" data-a="addPhoto" style="width:100%">拍照／選照片</button><input id="ph" type="file" accept="image/*" multiple hidden></div>'+
+    '<div><h3>照片（收據）</h3><div id="thumbs" class="thumbs"></div><button class="btn ghost" type="button" data-a="addPhoto" style="width:100%">拍照／選照片</button><button class="btn ghost" type="button" data-a="ocr" style="width:100%;margin-top:8px">辨識收據（Gemini）</button><p id="ocr-msg" class="hint"></p><input id="ph" type="file" accept="image/*" multiple hidden></div>'+
     '<label>備註<input id="f-note" type="text" placeholder="例如：一蘭拉麵" value="'+esc(v.note)+'"></label>'+
     '<div class="btns">'+(e?'<button class="btn danger" data-a="del">'+(ui.confirmDel?"再按一次刪除":"刪除")+'</button>':'<button class="btn ghost" data-a="close">取消</button>')+'<button class="btn" data-a="saveExp">儲存</button></div>';
   }else if(ui.sheet==="projects"){
@@ -223,6 +223,9 @@ function sheetHTML(p){
     (ui.msg?'<p class="hint">'+esc(ui.msg)+'</p>':'')+
     '<label>Google OAuth 用戶端 ID（只需設定一次，步驟見 README）<input id="cid" type="text" autocomplete="off" autocapitalize="off" placeholder="xxxx.apps.googleusercontent.com" value="'+esc(cid())+'"></label>'+
     '<label>雲端資料夾名稱（最外層，首次上傳時建立；每個專案會在裡面有自己的子資料夾）<input id="fname" type="text" value="'+esc(folderName())+'"></label>'+
+    '<label>Gemini API 金鑰（辨識收據用，只存在這支手機，請勿分享）<input id="gkey" type="password" autocomplete="off" autocapitalize="off" value="'+esc(geminiKey())+'"></label>'+
+    '<label>Gemini 模型名稱<input id="gmodel" type="text" autocapitalize="off" placeholder="gemini-flash-latest" value="'+esc(lsGet(GMODEL)||"")+'"></label>'+
+    '<p class="hint">辨識時會把壓縮後的收據照片送到 Google 的 Gemini 服務。免費額度的資料可能被 Google 用來改善產品。</p>'+
     '<button class="btn ghost" data-a="saveCid">儲存設定</button>'+
     '<h3>程式版本</h3><div class="btns" style="align-items:center"><span class="num" style="flex:1">目前版本 '+VERSION+'</span><button class="btn ghost" data-a="update">更新到最新版</button></div>'+
     '<h3>備份與匯出</h3>'+
@@ -373,6 +376,38 @@ function uploadPhotoCore(it,dt,amt,folder){
   }).then(function(r){return r.json()}).then(function(j){it.drive=j.id});
 }
 function pendingPhotos(p){var l=[];p.expenses.forEach(function(e){(e.photos||[]).forEach(function(x){if(!x.drive)l.push({x:x,e:e})})});return l}
+function geminiKey(){return (lsGet(GKEY)||"").trim()}
+function geminiModel(){return (lsGet(GMODEL)||"").trim()||"gemini-flash-latest"}
+function blobB64(b){return new Promise(function(res,rej){var r=new FileReader();r.onload=function(){res(String(r.result).split(",")[1])};r.onerror=rej;r.readAsDataURL(b)})}
+function recognize(blob){
+  return blobB64(blob).then(function(b64){
+    var prompt="這是日本旅遊的收據或帳單照片。請讀出資料並回傳 JSON。amount：付款總額（含稅，日圓整數；看「合計」「税込」「お会計」）。date：YYYY-MM-DD（令和等年號請換算成西元；沒有年份就用 "+new Date().getFullYear()+" 年）。time：HH:MM，24 小時制。place：店名（保留原文）。category：只能是 餐飲、交通、住宿、購物、景點、其他 其中之一。payment：只能是 現金、信用卡、IC卡、行動支付 其中之一，看不出來就給空字串。note：用繁體中文簡述買了什麼，15 字內。看不出來的文字欄位給空字串，amount 看不出來給 0。";
+    return fetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(geminiModel())+":generateContent",{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":geminiKey()},body:JSON.stringify({
+      contents:[{parts:[{text:prompt},{inline_data:{mime_type:"image/jpeg",data:b64}}]}],
+      generationConfig:{temperature:0,responseMimeType:"application/json",responseSchema:{type:"OBJECT",properties:{amount:{type:"INTEGER"},date:{type:"STRING"},time:{type:"STRING"},place:{type:"STRING"},category:{type:"STRING"},payment:{type:"STRING"},note:{type:"STRING"}},required:["amount","date","time","place","category","payment","note"]}}
+    })});
+  }).then(function(r){
+    if(!r.ok)return r.json().catch(function(){return {}}).then(function(j){
+      var m=(j.error&&j.error.message)||"";
+      throw new Error(r.status===429?"超過免費額度或太頻繁，請稍後再試":(r.status===400||r.status===403||r.status===404)?"金鑰或模型名稱有誤（"+m.slice(0,80)+"）":"服務回應 "+r.status);
+    });
+    return r.json();
+  }).then(function(j){
+    var c=j.candidates&&j.candidates[0],t=c&&c.content&&c.content.parts&&c.content.parts[0]&&c.content.parts[0].text;
+    if(!t)throw new Error("沒有辨識結果");
+    return JSON.parse(t);
+  });
+}
+function setField(id,v){var el=$(id);if(!el||v==null||v==="")return;el.value=v;el.dispatchEvent(new Event("input",{bubbles:true}))}
+function applyOcr(o){
+  if(o.amount>0)setField("#f-amt",Math.round(o.amount));
+  if(/^\d{4}-\d{2}-\d{2}$/.test(o.date||""))setField("#f-date",o.date);
+  if(/^\d{1,2}:\d{2}$/.test(o.time||""))setField("#f-time",o.time.length===4?"0"+o.time:o.time);
+  setField("#f-place",(o.place||"").trim());
+  if(o.note&&!$("#f-note").value.trim())setField("#f-note",o.note.trim());
+  if(CATS.some(function(c){return c[0]===o.category}))document.querySelectorAll("[data-fcat]").forEach(function(b){b.setAttribute("aria-pressed",b.dataset.fcat===o.category)});
+  if(PAYS.indexOf(o.payment)>=0)$("#f-pay").value=o.payment;
+}
 function showViewer(id){
   var it=(ui.photos||[]).find(function(x){return x.id===id});
   var v=document.createElement("div");v.className="viewer";
@@ -447,6 +482,15 @@ document.addEventListener("click",function(ev){
     if(di>=0){var d0=ui.photos.splice(di,1)[0];if(!d0.blob)ui.removed.push(d0.id);if(urls[d0.id]){URL.revokeObjectURL(urls[d0.id]);delete urls[d0.id]}}
     refreshThumbs();return}
   if(el.dataset.pview){showViewer(el.dataset.pview);return}
+  if(a==="ocr"){
+    var om=$("#ocr-msg");
+    if(!geminiKey()){toast("請先在「同步」設定 Gemini API 金鑰");return}
+    if(!navigator.onLine){toast("需要網路才能辨識");return}
+    if(!ui.photos.length){toast("請先拍照或選照片");return}
+    el.disabled=true;om.textContent="辨識中…";
+    photoBlob(ui.photos[0]).then(recognize).then(function(o){applyOcr(o);om.textContent="已填入辨識結果，請確認金額、日期等欄位後再儲存。"})
+      .catch(function(e){om.textContent="辨識失敗："+e.message}).then(function(){el.disabled=false});
+    return}
   if(a==="addPhoto"){
     var f=$("#ph");f.onchange=function(){
       var files=Array.prototype.slice.call(f.files||[]);f.value="";
@@ -470,7 +514,7 @@ document.addEventListener("click",function(ev){
   else if(a==="projects"){ui.cloud=null;ui.msg="";ui.localBytes=null;open("projects");(navigator.onLine&&cid()&&!hasToken()?loadGsi().catch(function(){}):0);projBytes(p).then(function(n){ui.localBytes=n;if(ui.sheet==="projects"&&!ui.busy)render()})}
   else if(a==="sync"){ui.cloud=null;ui.msg=cid()?"":"請先在下方填入 Google OAuth 用戶端 ID。";open("sync");if(navigator.onLine&&cid())loadGsi().catch(function(){})}
   else if(a==="close")close();
-  else if(a==="saveCid"){lsSet(CID_KEY,$("#cid").value.trim());lsSet(FOLDER_KEY,$("#fname").value.trim());tok=null;ui.msg="已儲存設定";render();if(navigator.onLine)loadGsi().catch(function(){})}
+  else if(a==="saveCid"){lsSet(CID_KEY,$("#cid").value.trim());lsSet(FOLDER_KEY,$("#fname").value.trim());lsSet(GKEY,$("#gkey").value.trim());lsSet(GMODEL,$("#gmodel").value.trim());tok=null;ui.msg="已儲存設定";render();if(navigator.onLine)loadGsi().catch(function(){})}
   else if(a==="saveExp"){
     var amt=Math.round(+$("#f-amt").value);
     if(!(amt>0)){toast("請輸入金額");return}
