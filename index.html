@@ -101,7 +101,7 @@ input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radiu
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v24";
+var VERSION="v25";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder", GKEY="jp-ledger-gemini", GMODEL="jp-ledger-gmodel";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -217,7 +217,7 @@ function sheetHTML(p){
     '<div class="btns"><button class="btn ghost" data-a="saveSet">更新設定</button><button class="btn danger" data-a="delProj">'+(ui.confirmDel?"再按一次確認":"從手機移除")+'</button></div>'+
     '<p class="hint">「從手機移除」只刪除手機上的資料，雲端已上傳的專案和照片會保留。</p>';
   }else if(ui.sheet==="sync"){
-    var on=navigator.onLine;
+    var on=navigator.onLine,rdy2=on&&!!cid()&&!ui.busy;
     b='<h2>同步與備份</h2>'+
     '<div class="status"><span class="dot'+(on?' on':'')+'"></span>'+(on?'已連線':'離線中，記帳不受影響；同步需要網路')+'</div>'+
     '<p class="hint">專案的上傳與切換請到上方「切換專案」頁面。這裡只設定 Google 連線與備份匯出。</p>'+
@@ -228,6 +228,10 @@ function sheetHTML(p){
     '<label>Gemini 模型名稱<input id="gmodel" type="text" autocapitalize="off" placeholder="gemini-flash-lite-latest" value="'+esc(lsGet(GMODEL)||"")+'"></label>'+
     '<p class="hint">辨識時會把壓縮後的收據照片送到 Google 的 Gemini 服務。免費額度的資料可能被 Google 用來改善產品。</p>'+
     '<button class="btn ghost" data-a="saveCid">儲存設定</button>'+
+    '<h3>整理總表（旅行結束、對完帳後使用）</h3>'+
+    '<p class="hint">會先上傳目前專案，再讀取雲端所有專案，整理成「旅費總表」（Google 試算表）放在主資料夾，每個專案一個分頁。需先在 Google Cloud 啟用 Google Sheets API。</p>'+
+    '<button class="btn ghost" data-a="book"'+(rdy2?'':' disabled')+'>整理總表</button>'+
+    (ui.bookUrl?'<a class="btn" style="display:grid;place-items:center;text-decoration:none" href="'+esc(ui.bookUrl)+'" target="_blank" rel="noopener">開啟旅費總表</a>':'')+
     '<h3>程式版本</h3><div class="btns" style="align-items:center"><span class="num" style="flex:1">目前版本 '+VERSION+'</span><button class="btn ghost" data-a="update">更新到最新版</button></div>'+
     '<h3>備份與匯出</h3>'+
     '<div class="btns"><button class="btn ghost" data-a="share">分享備份</button><button class="btn ghost" data-a="csv">匯出 Excel</button></div>'+
@@ -277,7 +281,7 @@ function drive(url,opt){
     opt=opt||{};opt.headers=Object.assign({Authorization:"Bearer "+t},opt.headers||{});
     return fetch(url,opt);
   }).then(function(r){
-    if(!r.ok)return r.text().then(function(x){throw new Error("Google 回應 "+r.status+(r.status===403||r.status===401?"，請確認已啟用 Drive API 並將帳號加入測試使用者":""))});
+    if(!r.ok)return r.text().then(function(x){var em="";try{em=JSON.parse(x).error.message||""}catch(e){}throw new Error("Google 回應 "+r.status+(em?"："+em.slice(0,160):"")+(r.status===403&&/Sheets API/i.test(em)?"（請到 Google Cloud 啟用 Google Sheets API）":""))});
     return r;
   });
 }
@@ -485,6 +489,85 @@ function loadCloudList(){
   listCloud().then(function(l){ui.cloud=l.sort(function(x,y){return y.u-x.u});ui.msg="";ui.busy=false;render()})
     .catch(function(e){ui.msg="讀取失敗："+e.message;ui.busy=false;render()});
 }
+
+/* ---- 整理總表（Google 試算表，每個專案一個分頁）---- */
+function jreq(m,o){return {method:m,headers:{"Content-Type":"application/json"},body:JSON.stringify(o)}}
+function sheetsApi(path,opt){return drive("https://sheets.googleapis.com/v4/spreadsheets"+path,opt).then(function(r){return r.json()})}
+function qTitle(t){return "'"+t.replace(/'/g,"''")+"'"}
+function safeTitle(t,used){t=(t||"未命名").replace(/[\[\]:*?\/\\]/g,"_").slice(0,90);var b=t,i=2;while(used[t])t=b+" ("+(i++)+")";used[t]=1;return t}
+function ensureBook(root){
+  var q=encodeURIComponent("appProperties has { key='jpbook' and value='1' } and trashed=false");
+  return drive("https://www.googleapis.com/drive/v3/files?q="+q+"&fields="+encodeURIComponent("files(id)")).then(function(r){return r.json()}).then(function(j){
+    if(j.files&&j.files.length)return j.files[0].id;
+    return drive("https://www.googleapis.com/drive/v3/files?fields=id",jreq("POST",{name:"旅費總表",mimeType:"application/vnd.google-apps.spreadsheet",parents:[root],appProperties:{jpbook:"1"}})).then(function(r){return r.json()}).then(function(f){return f.id});
+  });
+}
+function projectRows(p){
+  var rows=[["日期","時間","地點","類別","備註","付款方式","金額（日圓）","約合台幣","照片"]];
+  p.expenses.slice().sort(function(a,b){return a.date!==b.date?(a.date<b.date?-1:1):((a.time||"")<(b.time||"")?-1:(a.time||"")>(b.time||"")?1:0)}).forEach(function(e){
+    rows.push([e.date,e.time||"",e.place||"",e.cat,e.note||"",e.pay,e.amount,Math.round(e.amount*p.rate),(e.photos||[]).filter(function(x){return x.drive}).map(function(x){return "https://drive.google.com/file/d/"+x.drive+"/view"}).join("\n")]);
+  });
+  var n=p.expenses.length;
+  rows.push(["合計","","","","","","=SUM(G2:G"+(n+1)+")","=SUM(H2:H"+(n+1)+")",""]);
+  return rows;
+}
+function overviewRows(list){
+  var rows=[["專案","出發日","回程日","筆數","合計（日圓）","約合台幣","匯率","備註","雲端更新"]];
+  list.forEach(function(it){
+    var p=it.p,tot=p.expenses.reduce(function(s2,e){return s2+e.amount},0);
+    rows.push([p.name,p.start||"",p.end||"",p.expenses.length,tot,Math.round(tot*p.rate),p.rate,(p.memo||"").replace(/\s*\n\s*/g," / "),fmtT(p.updatedAt)]);
+  });
+  var n=list.length;
+  rows.push(["總計","","",'=SUM(D2:D'+(n+1)+')','=SUM(E2:E'+(n+1)+')','=SUM(F2:F'+(n+1)+')',"","",""]);
+  return rows;
+}
+function buildBook(){
+  ui.busy=true;ui.bookUrl="";ui.msg="先上傳目前專案…";render();
+  var bookId,sheetIds={};
+  return pushAll().then(function(){
+    ui.msg="讀取雲端專案…";render();
+    return Promise.all([ensureFolder(),listCloud()]);
+  }).then(function(res){
+    var items=res[1],projects=[];
+    return ensureBook(res[0]).then(function(id){bookId=id;
+      return items.reduce(function(pr,it,i){return pr.then(function(){
+        ui.msg="讀取專案 "+(i+1)+"/"+items.length+"…";render();
+        return drive("https://www.googleapis.com/drive/v3/files/"+it.id+"?alt=media").then(function(r){return r.json()}).then(function(o){if(validProject(o))projects.push({p:o})}).catch(function(){});
+      })},Promise.resolve());
+    }).then(function(){return projects});
+  }).then(function(projects){
+    ui.msg="寫入試算表…";render();
+    projects.sort(function(a,b){var x=a.p.start||"9999",y=b.p.start||"9999";return x!==y?(x<y?-1:1):(a.p.createdAt-b.p.createdAt)});
+    var used={"總覽":1},tabs={"總覽":overviewRows(projects)},order=["總覽"];
+    projects.forEach(function(it){var t=safeTitle(it.p.name,used);tabs[t]=projectRows(it.p);order.push(t)});
+    var meta="?fields="+encodeURIComponent("sheets.properties(sheetId,title)");
+    return sheetsApi("/"+bookId+meta).then(function(m){
+      var have={};(m.sheets||[]).forEach(function(s2){have[s2.properties.title]=s2.properties.sheetId});
+      var reqs=[];
+      order.forEach(function(t){if(have[t]==null)reqs.push({addSheet:{properties:{title:t}}})});
+      Object.keys(have).forEach(function(t){if(order.indexOf(t)<0)reqs.push({deleteSheet:{sheetId:have[t]}})});
+      return reqs.length?sheetsApi("/"+bookId+":batchUpdate",jreq("POST",{requests:reqs})):null;
+    }).then(function(){return sheetsApi("/"+bookId+meta)}).then(function(m){
+      (m.sheets||[]).forEach(function(s2){sheetIds[s2.properties.title]=s2.properties.sheetId});
+      return sheetsApi("/"+bookId+"/values:batchClear",jreq("POST",{ranges:order.map(function(t){return qTitle(t)+"!A:Z"})}));
+    }).then(function(){
+      return sheetsApi("/"+bookId+"/values:batchUpdate",jreq("POST",{valueInputOption:"USER_ENTERED",data:order.map(function(t){return {range:qTitle(t)+"!A1",values:tabs[t]}})}));
+    }).then(function(){
+      var reqs=[];
+      order.forEach(function(t,i){
+        var id=sheetIds[t];if(id==null)return;
+        reqs.push({repeatCell:{range:{sheetId:id,startRowIndex:0,endRowIndex:1},cell:{userEnteredFormat:{textFormat:{bold:true},backgroundColor:{red:0.9,green:0.93,blue:0.97}}},fields:"userEnteredFormat(textFormat,backgroundColor)"}});
+        reqs.push({updateSheetProperties:{properties:{sheetId:id,index:i,gridProperties:{frozenRowCount:1}},fields:"index,gridProperties.frozenRowCount"}});
+        reqs.push({repeatCell:{range:{sheetId:id,startRowIndex:1,startColumnIndex:i===0?4:6,endColumnIndex:i===0?6:8},cell:{userEnteredFormat:{numberFormat:{type:"NUMBER",pattern:"#,##0"}}},fields:"userEnteredFormat.numberFormat"}});
+        reqs.push({autoResizeDimensions:{dimensions:{sheetId:id,dimension:"COLUMNS",startIndex:0,endIndex:i===0?9:8}}});
+      });
+      return sheetsApi("/"+bookId+":batchUpdate",jreq("POST",{requests:reqs}));
+    }).then(function(){
+      ui.busy=false;ui.bookUrl="https://docs.google.com/spreadsheets/d/"+bookId+"/edit";
+      ui.msg="已更新「旅費總表」，共 "+projects.length+" 個專案分頁。";render();
+    });
+  }).catch(function(e){ui.busy=false;ui.msg="整理總表失敗："+e.message;render()});
+}
 function saveFile(name,mime,text,share){
   name=name.replace(/[\\/:*?"<>|]/g,"_");
   var file=new File([text],name,{type:mime});
@@ -531,6 +614,7 @@ document.addEventListener("click",function(ev){
     }).catch(failSwitch);
     return}
   if(a==="add")open("form");
+  else if(a==="book"){buildBook()}
   else if(a==="loadCloud"){loadCloudList()}
   else if(a==="projects"){ui.cloud=null;ui.msg="";ui.localBytes=null;open("projects");(navigator.onLine&&cid()&&!hasToken()?loadGsi().catch(function(){}):0);projBytes(p).then(function(n){ui.localBytes=n;if(ui.sheet==="projects"&&!ui.busy)render()})}
   else if(a==="sync"){ui.cloud=null;ui.msg=cid()?"":"請先在下方填入 Google OAuth 用戶端 ID。";open("sync");if(navigator.onLine&&cid())loadGsi().catch(function(){})}

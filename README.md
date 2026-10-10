@@ -25,7 +25,7 @@
 ## 三、設定 Google 同步（只需一次）
 
 1. 開 <https://console.cloud.google.com/>，建立專案。
-2. **API 和服務 → 程式庫**，搜尋 **Google Drive API**，按「啟用」。
+2. **API 和服務 → 程式庫**，搜尋 **Google Drive API**，按「啟用」。若要使用「整理總表」，也啟用 **Google Sheets API**。
 3. **API 和服務 → OAuth 同意畫面**：
    - 使用者類型選「外部」，填 App 名稱與你的 Email。
    - 「測試使用者」加入你自己的 Google 帳號。保持「測試中」即可，不用送審。
