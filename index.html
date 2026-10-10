@@ -98,7 +98,7 @@ input[type=date]::-webkit-date-and-time-value,input[type=time]::-webkit-date-and
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v12";
+var VERSION="v13";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -281,8 +281,12 @@ function projectFolder(p){
   var base="https://www.googleapis.com/drive/v3/files";
   return ensureFolder().then(function(root){
     var q=encodeURIComponent("mimeType='application/vnd.google-apps.folder' and appProperties has { key='jpproj' and value='"+p.id+"' } and trashed=false");
-    return drive(base+"?q="+q+"&fields="+encodeURIComponent("files(id)")).then(function(r){return r.json()}).then(function(j){
-      if(j.files&&j.files.length)return j.files[0].id;
+    return drive(base+"?q="+q+"&fields="+encodeURIComponent("files(id,name)")).then(function(r){return r.json()}).then(function(j){
+      if(j.files&&j.files.length){
+        var f0=j.files[0];
+        if(f0.name===p.name)return f0.id;
+        return drive(base+"/"+f0.id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:p.name})}).then(function(){return f0.id});
+      }
       return drive(base+"?fields=id",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:p.name,mimeType:"application/vnd.google-apps.folder",parents:[root],appProperties:{jpproj:p.id}})}).then(function(r){return r.json()}).then(function(f){return f.id});
     });
   });
