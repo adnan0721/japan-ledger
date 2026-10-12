@@ -82,7 +82,7 @@ input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radiu
 .status{display:flex;gap:8px;align-items:center;font-size:13px}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--warn)}.dot.on{background:#2f9d63}
 .chg{outline:2px solid var(--accent);outline-offset:1px;background:var(--soft)}
-.warnbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:8px 12px;border-radius:12px;background:var(--soft);border:1px solid var(--warn);font-size:13px}
+.warnbar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:12px;background:var(--soft);border:1px solid var(--warn);font-size:13px}
 .warnbar span{flex:1;min-width:0}
 .warnbar button{flex:none;height:32px;padding-inline:12px;border-radius:8px;background:var(--accent);color:var(--accent-fg);font-weight:700;font-size:13px}
 .thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
@@ -104,7 +104,7 @@ input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radiu
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v29";
+var VERSION="v30";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder", GKEY="jp-ledger-gemini", GMODEL="jp-ledger-gmodel";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -154,7 +154,7 @@ function render(){
   var by={};ex.forEach(function(e){by[e.cat]=(by[e.cat]||0)+e.amount});
   var list=ui.cat==="全部"?ex:ex.filter(function(e){return e.cat===ui.cat});
   var h='<div class="bar"><button class="proj" data-a="projects" aria-label="切換專案"><b>'+esc(p.name)+'</b><small>切換 ▾</small></button><button class="ibtn'+(navigator.onLine?'':' off')+'" data-a="sync">同步</button></div>';
-  h+=syncBanner(p)+'<section class="sum"><div class="lbl">總支出</div><div class="big num">'+yen(total)+'</div><div class="row num"><span>約 '+twd(total,p.rate)+'</span><span>今日 '+yen(tdSum)+'</span>'+(days?'<span>日均 '+yen(total/days)+'</span>':'')+cashHTML(p)+'</div>'+extraHTML(p,total)+'</section>';
+  h+='<section class="sum"><div class="lbl">總支出</div><div class="big num">'+yen(total)+'</div><div class="row num"><span>約 '+twd(total,p.rate)+'</span><span>今日 '+yen(tdSum)+'</span>'+(days?'<span>日均 '+yen(total/days)+'</span>':'')+cashHTML(p)+'</div>'+extraHTML(p,total)+'</section>';
   h+='<div class="cats"><button class="chip" data-cat="全部" aria-pressed="'+(ui.cat==="全部")+'">全部</button>'+CATS.map(function(c){return '<button class="chip" data-cat="'+c[0]+'" aria-pressed="'+(ui.cat===c[0])+'">'+c[0]+(by[c[0]]?'<span class="num">'+yen(by[c[0]])+'</span>':'')+'</button>'}).join("")+'</div>';
   if(!list.length)h+='<div class="empty">還沒有記錄<br>點右下角「記一筆」開始</div>';
   else{
@@ -183,7 +183,7 @@ function syncBanner(p){
   var changed=(p.updatedAt||0)>(p.syncedAt||0);
   if(!changed||!p.expenses.length)return '';
   if(p.syncedAt&&Date.now()-p.syncedAt<WARN_MS)return '';
-  return '<div class="warnbar"><span>'+(p.syncedAt?'上次上傳雲端是 '+ago(Date.now()-p.syncedAt)+'，之後有未上傳的變動':'還沒上傳到雲端，資料只在這支手機')+'</span><button data-a="projects">前往上傳</button></div>';
+  return '<div class="warnbar"><span>'+(p.syncedAt?'上次上傳雲端是 '+ago(Date.now()-p.syncedAt)+'，之後有未上傳的變動，建議上傳':'還沒上傳到雲端，資料只在這支手機，建議上傳')+'</span></div>';
 }
 function cashHTML(p){
   if(!(p.cash>0))return '';
@@ -218,6 +218,7 @@ function sheetHTML(p){
     b='<h2>切換專案</h2>'+
     '<p class="hint">手機只保留目前專案。按「切換專案」會先上傳目前專案（含照片），再讓你選要下載的專案。需要網路。</p>'+
     '<div class="pl on"><div><b>'+esc(p.name)+'</b><small class="num">目前 · '+p.expenses.length+' 筆 · '+yen(tot)+' · 手機 '+(ui.localBytes==null?'計算中…':fmtB(ui.localBytes))+'</small></div><span>✓</span></div>'+
+    syncBanner(p)+
     (ui.msg?'<p class="hint">'+esc(ui.msg)+'</p>':'')+
     (!cid()?'<p class="hint">尚未設定 Google 用戶端 ID，請到「同步」設定後才能切換專案。</p>':!navigator.onLine?'<p class="hint">離線中，無法切換專案。</p>':'')+
     '<div class="btns"><button class="btn" data-a="up"'+(rdy?'':' disabled')+'>'+(function(){var n=pendingPhotos(p).length;return '上傳專案與照片'+(n?'（'+n+' 張未傳）':'')})()+'</button><button class="btn ghost" data-a="loadCloud"'+(rdy?'':' disabled')+'>切換專案</button></div>'+

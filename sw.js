@@ -1,5 +1,5 @@
 // 離線快取：同網域檔案「網路優先、3 秒逾時改用快取」，確保連線時一定拿到最新版。
-var CACHE = "jpl-v29";
+var CACHE = "jpl-v30";
 var ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 self.addEventListener("install", function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) {
