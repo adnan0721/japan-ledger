@@ -82,6 +82,9 @@ input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radiu
 .status{display:flex;gap:8px;align-items:center;font-size:13px}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--warn)}.dot.on{background:#2f9d63}
 .chg{outline:2px solid var(--accent);outline-offset:1px;background:var(--soft)}
+.warnbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:8px 12px;border-radius:12px;background:var(--soft);border:1px solid var(--warn);font-size:13px}
+.warnbar span{flex:1;min-width:0}
+.warnbar button{flex:none;height:32px;padding-inline:12px;border-radius:8px;background:var(--accent);color:var(--accent-fg);font-weight:700;font-size:13px}
 .thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
 .thumbs:empty{display:none}
 .th{position:relative;width:76px;height:76px;border-radius:10px;overflow:hidden;background:var(--soft);display:grid;place-items:center;font-size:11px;color:var(--accent)}
@@ -101,7 +104,7 @@ input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radiu
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v28";
+var VERSION="v29";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder", GKEY="jp-ledger-gemini", GMODEL="jp-ledger-gmodel";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -151,7 +154,7 @@ function render(){
   var by={};ex.forEach(function(e){by[e.cat]=(by[e.cat]||0)+e.amount});
   var list=ui.cat==="全部"?ex:ex.filter(function(e){return e.cat===ui.cat});
   var h='<div class="bar"><button class="proj" data-a="projects" aria-label="切換專案"><b>'+esc(p.name)+'</b><small>切換 ▾</small></button><button class="ibtn'+(navigator.onLine?'':' off')+'" data-a="sync">同步</button></div>';
-  h+='<section class="sum"><div class="lbl">總支出</div><div class="big num">'+yen(total)+'</div><div class="row num"><span>約 '+twd(total,p.rate)+'</span><span>今日 '+yen(tdSum)+'</span>'+(days?'<span>日均 '+yen(total/days)+'</span>':'')+cashHTML(p)+'</div>'+extraHTML(p,total)+'</section>';
+  h+=syncBanner(p)+'<section class="sum"><div class="lbl">總支出</div><div class="big num">'+yen(total)+'</div><div class="row num"><span>約 '+twd(total,p.rate)+'</span><span>今日 '+yen(tdSum)+'</span>'+(days?'<span>日均 '+yen(total/days)+'</span>':'')+cashHTML(p)+'</div>'+extraHTML(p,total)+'</section>';
   h+='<div class="cats"><button class="chip" data-cat="全部" aria-pressed="'+(ui.cat==="全部")+'">全部</button>'+CATS.map(function(c){return '<button class="chip" data-cat="'+c[0]+'" aria-pressed="'+(ui.cat===c[0])+'">'+c[0]+(by[c[0]]?'<span class="num">'+yen(by[c[0]])+'</span>':'')+'</button>'}).join("")+'</div>';
   if(!list.length)h+='<div class="empty">還沒有記錄<br>點右下角「記一筆」開始</div>';
   else{
@@ -174,6 +177,14 @@ function render(){
 }
 
 function dtField(id,type,val,ph){return '<div class="dt"><span'+(val?'':' class="ph"')+'>'+esc(val||ph)+'</span><input id="'+id+'" type="'+type+'" value="'+esc(val||"")+'" data-ph="'+esc(ph)+'"></div>'}
+var WARN_MS=24*3600*1000;
+function ago(ms){var h=Math.floor(ms/3600000);return h<1?"不到 1 小時前":h<24?h+" 小時前":Math.floor(h/24)+" 天前"}
+function syncBanner(p){
+  var changed=(p.updatedAt||0)>(p.syncedAt||0);
+  if(!changed||!p.expenses.length)return '';
+  if(p.syncedAt&&Date.now()-p.syncedAt<WARN_MS)return '';
+  return '<div class="warnbar"><span>'+(p.syncedAt?'上次上傳雲端是 '+ago(Date.now()-p.syncedAt)+'，之後有未上傳的變動':'還沒上傳到雲端，資料只在這支手機')+'</span><button data-a="projects">前往上傳</button></div>';
+}
 function cashHTML(p){
   if(!(p.cash>0))return '';
   var used=p.expenses.reduce(function(s2,e){return e.pay==="現金"?s2+e.amount:s2},0),left=p.cash-used;
@@ -184,7 +195,6 @@ function extraHTML(p,total){
   var h='',m=[];
   if(p.start||p.end)m.push(md(p.start)+(p.end?' – '+md(p.end):''));
   if(m.length)h+='<div class="meta num">'+esc(m.join('　·　'))+'</div>';
-  if(p.memo)h+='<div class="memo">'+esc(p.memo)+'</div>';
   return h;
 }
 function sheetHTML(p){
@@ -338,6 +348,7 @@ function uploadProject(p){
     if(ex){url+="&addParents="+folder;var rm=ex.parents.filter(function(x){return x!==folder});if(rm.length)url+="&removeParents="+rm.join(",")}
     return drive(url,{method:ex?"PATCH":"POST",headers:{"Content-Type":"multipart/related; boundary="+B},body:body}).then(function(){
       var ids=[];p.expenses.forEach(function(e){(e.photos||[]).forEach(function(x){if(x.drive)ids.push(x.drive)})});
+      p.syncedAt=Date.now();save();
       return ids.reduce(function(pr,id){return pr.then(function(){return moveToFolder(id,folder).catch(function(){})})},Promise.resolve());
     });
   });
@@ -470,6 +481,7 @@ function pushAll(){
 function pullProject(item){
   return drive("https://www.googleapis.com/drive/v3/files/"+item.id+"?alt=media").then(function(r){return r.json()}).then(function(o){
     if(!validProject(o))throw new Error("雲端檔案格式不正確");
+    o.syncedAt=Date.now();
     var xs=[];o.expenses.forEach(function(e){(e.photos||[]).forEach(function(x){if(x.drive)xs.push(x)})});
     return xs.reduce(function(pr,x,i){return pr.then(function(){
       ui.msg="下載照片 "+(i+1)+"/"+xs.length+"…";render();
