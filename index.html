@@ -38,6 +38,11 @@ button{cursor:pointer;border:0;background:none}
 .sum .lbl{font-size:12px;opacity:.8;letter-spacing:.08em}
 .sum .big{font-size:34px;font-weight:700;line-height:1.1}
 .sum .row{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;opacity:.9;margin-top:6px}
+.sum .cash{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:8px;padding-top:10px;border-top:1px solid color-mix(in srgb,currentColor 30%,transparent)}
+.sum .cash span{font-size:13px;opacity:.9}
+.sum .cash b{font-size:28px;font-weight:700;line-height:1.2}
+.sum .cash small{font-size:12px;opacity:.8;margin-left:auto}
+.sum .cash.low b{background:var(--seal);color:#fff;padding:0 10px;border-radius:8px}
 .sum .meta{font-size:13px;opacity:.9}
 .sum .memo{font-size:12px;opacity:.75;white-space:pre-wrap;overflow-wrap:anywhere}
 .cats{display:flex;gap:8px;overflow-x:auto;padding-block:14px;scrollbar-width:none}
@@ -104,7 +109,7 @@ input,select{width:100%;min-width:0;height:46px;padding-inline:12px;border-radiu
 (function(){
 var CATS=[["餐飲","食"],["交通","行"],["住宿","宿"],["購物","買"],["景點","遊"],["其他","他"]];
 var PAYS=["現金","信用卡","IC卡","行動支付"];
-var VERSION="v30";
+var VERSION="v31";
 var KEY="jp-ledger-v1", CID_KEY="jp-ledger-gclient", FOLDER_KEY="jp-ledger-folder", GKEY="jp-ledger-gemini", GMODEL="jp-ledger-gmodel";
 var SCOPE="https://www.googleapis.com/auth/drive.file";
 var mem=null;
@@ -154,7 +159,7 @@ function render(){
   var by={};ex.forEach(function(e){by[e.cat]=(by[e.cat]||0)+e.amount});
   var list=ui.cat==="全部"?ex:ex.filter(function(e){return e.cat===ui.cat});
   var h='<div class="bar"><button class="proj" data-a="projects" aria-label="切換專案"><b>'+esc(p.name)+'</b><small>切換 ▾</small></button><button class="ibtn'+(navigator.onLine?'':' off')+'" data-a="sync">同步</button></div>';
-  h+='<section class="sum"><div class="lbl">總支出</div><div class="big num">'+yen(total)+'</div><div class="row num"><span>約 '+twd(total,p.rate)+'</span><span>今日 '+yen(tdSum)+'</span>'+(days?'<span>日均 '+yen(total/days)+'</span>':'')+cashHTML(p)+'</div>'+extraHTML(p,total)+'</section>';
+  h+='<section class="sum"><div class="lbl">總支出</div><div class="big num">'+yen(total)+'</div><div class="row num"><span>約 '+twd(total,p.rate)+'</span><span>今日 '+yen(tdSum)+'</span>'+(days?'<span>日均 '+yen(total/days)+'</span>':'')+'</div>'+cashHTML(p)+extraHTML(p,total)+'</section>';
   h+='<div class="cats"><button class="chip" data-cat="全部" aria-pressed="'+(ui.cat==="全部")+'">全部</button>'+CATS.map(function(c){return '<button class="chip" data-cat="'+c[0]+'" aria-pressed="'+(ui.cat===c[0])+'">'+c[0]+(by[c[0]]?'<span class="num">'+yen(by[c[0]])+'</span>':'')+'</button>'}).join("")+'</div>';
   if(!list.length)h+='<div class="empty">還沒有記錄<br>點右下角「記一筆」開始</div>';
   else{
@@ -188,7 +193,7 @@ function syncBanner(p){
 function cashHTML(p){
   if(!(p.cash>0))return '';
   var used=p.expenses.reduce(function(s2,e){return e.pay==="現金"?s2+e.amount:s2},0),left=p.cash-used;
-  return '<span>'+(left>=0?'現金剩餘 '+yen(left):'現金不足 '+yen(-left))+' / 持有 '+yen(p.cash)+'</span>';
+  return '<div class="cash'+(left<0?' low':'')+'"><span>'+(left>=0?'現金剩餘':'現金不足')+'</span><b class="num">'+yen(Math.abs(left))+'</b><small class="num">持有 '+yen(p.cash)+'</small></div>';
 }
 function md(d){return d?d.slice(5).replace('-','/'):''}
 function extraHTML(p,total){
